@@ -1,0 +1,29 @@
+{
+  "name": "repple",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "build:web": "npm run build --prefix apps/web",
+    "zip": "wxt zip",
+    "typecheck": "tsc --noEmit",
+    "typecheck:web": "npm run typecheck --prefix apps/web",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.56.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@wxt-dev/module-react": "^1.1.5",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "wxt": "^0.20.25"
+  }
+}
