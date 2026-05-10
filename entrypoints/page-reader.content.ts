@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 
 import { extractAutofillHints } from '../utils/autofill';
+import { extractVehiclePageMediaContextFromDocument } from '../utils/vehicle-images';
 
 const CRM_LABEL_KEYWORDS =
   /customer|client|guest|buyer|lead|prospect|vehicle|car|model|appointment|appt|scheduled|delivery|arrival|sales|advisor|consultant|dealer|dealership|store|location|address/i;
@@ -190,20 +191,36 @@ export default defineContentScript({
     });
 
     browser.runtime.onMessage.addListener((message) => {
-      if (message?.type !== 'repple:extract-page-context') {
-        return undefined;
+      if (message?.type === 'repple:extract-page-context') {
+        const visibleText = getVisiblePageText();
+        const hints = extractAutofillHints(visibleText, document.title);
+
+        console.debug(REPPLE_DEBUG_PREFIX, {
+          url: window.location.href,
+          title: document.title,
+          hints,
+        });
+
+        return hints;
       }
 
-      const visibleText = getVisiblePageText();
-      const hints = extractAutofillHints(visibleText, document.title);
+      if (message?.type === 'repple:extract-vehicle-media') {
+        const context = extractVehiclePageMediaContextFromDocument();
 
-      console.debug(REPPLE_DEBUG_PREFIX, {
-        url: window.location.href,
-        title: document.title,
-        hints,
-      });
+        console.debug(REPPLE_DEBUG_PREFIX, {
+          url: window.location.href,
+          title: document.title,
+          vehicleMedia: {
+            vin: context.vin,
+            imageCount: context.images.length,
+            inventoryLinkCount: context.inventoryLinks.length,
+          },
+        });
 
-      return hints;
+        return context;
+      }
+
+      return undefined;
     });
   },
 });

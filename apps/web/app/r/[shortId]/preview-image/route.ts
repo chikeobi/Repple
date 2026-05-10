@@ -16,13 +16,16 @@ export async function GET(
 ) {
   const { shortId } = await params;
   const record = await getAppointmentRecord(shortId);
-  const resolvedImage = record ? await resolveVehicleImage(record.vehicle) : null;
+  const resolvedImage =
+    record && !record.vehicleImageUrl ? await resolveVehicleImage(record.vehicle) : null;
   const response = renderAppointmentPreviewImage(
     record
       ? {
           ...record,
           videoThumbnailUrl:
-            resolvedImage?.imageUrl ?? buildFallbackVehicleImageDataUrl(record.vehicle),
+            record.vehicleImageUrl ??
+            resolvedImage?.imageUrl ??
+            buildFallbackVehicleImageDataUrl(record.vehicle),
         }
       : record,
   );

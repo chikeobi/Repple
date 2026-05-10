@@ -138,6 +138,16 @@ export function buildVehicleImageResolveUrl(vehicle: string, origin: string) {
   return url.toString();
 }
 
+export function appendVinToVehicleImageUrl(url: string, vin?: string | null) {
+  if (!vin?.trim()) {
+    return url;
+  }
+
+  const nextUrl = new URL(url);
+  nextUrl.searchParams.set('vin', vin.trim());
+  return nextUrl.toString();
+}
+
 function getFallbackShapes(bodyStyle: VehicleBodyStyle) {
   switch (bodyStyle) {
     case 'suv':

@@ -7,6 +7,20 @@ const STANDARD_SHORT_ID_PATTERN = /^[A-Z0-9]{6}$/;
 const LEGACY_SHORT_ID_PATTERN = /^rep_[a-z0-9]+$/i;
 
 export type VideoGenerationStatus = 'processing' | 'ready';
+export type VehicleImageProvider =
+  | 'crm-page'
+  | 'inventory-page'
+  | 'vin-lookup'
+  | 'external-api'
+  | 'fallback';
+export type VehicleImageConfidence = 'high' | 'medium' | 'low';
+
+export type VehicleImageSelection = {
+  url: string;
+  provider: VehicleImageProvider;
+  sourcePageUrl: string | null;
+  confidence: VehicleImageConfidence;
+};
 
 export type AppointmentRecord = {
   id: string;
@@ -18,6 +32,10 @@ export type AppointmentRecord = {
   dealershipAddress: string;
   landingPageUrl: string;
   previewImageUrl: string;
+  vehicleImageUrl: string | null;
+  vehicleImageProvider: VehicleImageProvider | null;
+  vehicleImageSourcePageUrl: string | null;
+  vehicleImageConfidence: VehicleImageConfidence | null;
   smsText: string;
   videoProvider: 'mock';
   videoStatus: VideoGenerationStatus;
@@ -79,6 +97,10 @@ export type SupabaseAppointmentRow = {
   salesperson_name: string | null;
   dealership_name: string | null;
   address: string | null;
+  vehicle_image_url?: string | null;
+  vehicle_image_provider?: string | null;
+  vehicle_image_source_page_url?: string | null;
+  vehicle_image_confidence?: string | null;
   created_at: string | null;
 };
 
@@ -91,6 +113,10 @@ export type NormalizedAppointmentRow = {
   salesperson_name: string;
   dealership_name: string;
   address: string;
+  vehicle_image_url: string | null;
+  vehicle_image_provider: VehicleImageProvider | null;
+  vehicle_image_source_page_url: string | null;
+  vehicle_image_confidence: VehicleImageConfidence | null;
   created_at: string;
 };
 
@@ -226,6 +252,33 @@ export function normalizeSupabaseRow(row: SupabaseAppointmentRow | null | undefi
     return null;
   }
 
+  const normalizedVehicleImageProvider = row.vehicle_image_provider
+    ? row.vehicle_image_provider
+    : null;
+  const normalizedVehicleImageConfidence = row.vehicle_image_confidence
+    ? row.vehicle_image_confidence
+    : null;
+
+  if (
+    normalizedVehicleImageProvider &&
+    ![
+      'crm-page',
+      'inventory-page',
+      'vin-lookup',
+      'external-api',
+      'fallback',
+    ].includes(normalizedVehicleImageProvider)
+  ) {
+    return null;
+  }
+
+  if (
+    normalizedVehicleImageConfidence &&
+    !['high', 'medium', 'low'].includes(normalizedVehicleImageConfidence)
+  ) {
+    return null;
+  }
+
   return {
     generated_id: normalizedGeneratedId,
     legacy_generated_id: normalizedLegacyId,
@@ -235,6 +288,12 @@ export function normalizeSupabaseRow(row: SupabaseAppointmentRow | null | undefi
     salesperson_name: row.salesperson_name,
     dealership_name: row.dealership_name,
     address: row.address,
+    vehicle_image_url: row.vehicle_image_url ?? null,
+    vehicle_image_provider:
+      (normalizedVehicleImageProvider as VehicleImageProvider | null) ?? null,
+    vehicle_image_source_page_url: row.vehicle_image_source_page_url ?? null,
+    vehicle_image_confidence:
+      (normalizedVehicleImageConfidence as VehicleImageConfidence | null) ?? null,
     created_at: row.created_at,
   };
 }

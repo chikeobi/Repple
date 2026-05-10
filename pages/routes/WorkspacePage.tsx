@@ -8,16 +8,13 @@ import { PersonalizedVideoCard } from '../../components/PersonalizedVideoCard';
 import { SectionCard } from '../../components/SectionCard';
 import { extractAutofillHints } from '../../utils/autofill';
 import { createAndSaveAppointmentRecord, getAppointmentRecord } from '../../utils/appointments';
-import {
-  buildLandingPageUrl,
-  buildSmsText,
-  buildVehicleImageResolveUrl,
-} from '../../utils/repple';
+import { resolveVehicleImageSelection, type VehiclePageMediaContext } from '../../utils/vehicle-images';
 import type {
   AppointmentDraft,
   AppointmentRecord,
   AutofillHints,
 } from '../../utils/types';
+import type { VehicleImageSelection } from '../../shared/repple-contract';
 
 const initialDraft: AppointmentDraft = {
   firstName: '',
@@ -91,6 +88,8 @@ export function WorkspacePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
   const [detectedHints, setDetectedHints] = useState<AutofillHints | null>(null);
+  const [resolvedVehicleImage, setResolvedVehicleImage] = useState<VehicleImageSelection | null>(null);
+  const [pageScanVersion, setPageScanVersion] = useState(0);
   const [, setDetectionStatus] = useState<DetectionStatus>('idle');
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -144,22 +143,6 @@ export function WorkspacePage() {
       window.clearInterval(intervalId);
     };
   }, [generated]);
-
-  useEffect(() => {
-    if (generated || draft.vehicle.trim().length < 4) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      void fetch(buildVehicleImageResolveUrl(draft.vehicle), {
-        method: 'GET',
-      }).catch(() => {});
-    }, 220);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [draft.vehicle, generated]);
 
   function updateField(key: DraftKey, value: string) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -439,6 +422,40 @@ export function WorkspacePage() {
     return readHintsFromTab(tabId, attempt + 1);
   }
 
+  async function readVehicleMediaFromTab(
+    tabId: number,
+    attempt = 0,
+  ): Promise<VehiclePageMediaContext | null> {
+    try {
+      const context = (await browser.tabs.sendMessage(tabId, {
+        type: 'repple:extract-vehicle-media',
+      })) as VehiclePageMediaContext | undefined;
+
+      if (context) {
+        return context;
+      }
+    } catch (error) {
+      if (attempt === 0) {
+        await ensurePageReader(tabId);
+      }
+
+      if (attempt >= 2) {
+        console.debug(REPPLE_DEBUG_PREFIX, {
+          action: 'vehicle-media-read-failed',
+          tabId,
+          error,
+        });
+      }
+    }
+
+    if (attempt >= 2) {
+      return null;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+    return readVehicleMediaFromTab(tabId, attempt + 1);
+  }
+
   async function detectFromActiveTab() {
     if (generated) {
       return;
@@ -452,6 +469,7 @@ export function WorkspacePage() {
 
       if (!tab?.id) {
         setDetectionStatus('empty');
+        setPageScanVersion((current) => current + 1);
         return;
       }
 
@@ -460,6 +478,7 @@ export function WorkspacePage() {
       if (!hints) {
         setDetectedHints(null);
         setDetectionStatus('empty');
+        setPageScanVersion((current) => current + 1);
         return;
       }
 
@@ -486,6 +505,7 @@ export function WorkspacePage() {
       if (!hasUsefulData) {
         setDetectedHints(null);
         setDetectionStatus('empty');
+        setPageScanVersion((current) => current + 1);
         return;
       }
 
@@ -511,9 +531,39 @@ export function WorkspacePage() {
         return nextDraft;
       });
       setDetectionStatus('applied');
+      setPageScanVersion((current) => current + 1);
     } catch {
       setDetectedHints(null);
       setDetectionStatus('empty');
+      setPageScanVersion((current) => current + 1);
+    }
+  }
+
+  async function resolveVehicleImageForActiveTab(vehicle: string) {
+    try {
+      const [tab] = await browser.tabs.query({
+        active: true,
+        lastFocusedWindow: true,
+      });
+
+      if (!tab?.id) {
+        return null;
+      }
+
+      const mediaContext = await readVehicleMediaFromTab(tab.id);
+
+      if (!mediaContext) {
+        return null;
+      }
+
+      return resolveVehicleImageSelection(mediaContext, vehicle);
+    } catch (error) {
+      console.debug(REPPLE_DEBUG_PREFIX, {
+        action: 'vehicle-image-resolution-failed',
+        vehicle,
+        error,
+      });
+      return null;
     }
   }
 
@@ -548,6 +598,35 @@ export function WorkspacePage() {
     };
   }, [generated]);
 
+  useEffect(() => {
+    if (generated) {
+      return;
+    }
+
+    const vehicle = draft.vehicle.trim();
+
+    if (vehicle.length < 4) {
+      setResolvedVehicleImage(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      void resolveVehicleImageForActiveTab(vehicle).then((selection) => {
+        if (cancelled) {
+          return;
+        }
+
+        setResolvedVehicleImage(selection);
+      });
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [draft.vehicle, generated, pageScanVersion]);
+
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -559,7 +638,9 @@ export function WorkspacePage() {
     setError('');
 
     try {
-      const record = await createAndSaveAppointmentRecord(draft);
+      const record = await createAndSaveAppointmentRecord(draft, {
+        vehicleImage: resolvedVehicleImage,
+      });
 
       setGenerated(record);
       setSmsDraft(record.smsText);

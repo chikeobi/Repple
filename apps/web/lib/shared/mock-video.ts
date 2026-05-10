@@ -28,8 +28,12 @@ function getMockVideoDelayMs(seed: string) {
 }
 
 function getMockVideoThumbnailUrl(
-  record: Pick<AppointmentRecord, 'landingPageUrl' | 'vehicle'>,
+  record: Pick<AppointmentRecord, 'landingPageUrl' | 'vehicle' | 'vehicleImageUrl'>,
 ) {
+  if (record.vehicleImageUrl) {
+    return record.vehicleImageUrl;
+  }
+
   try {
     const origin = new URL(record.landingPageUrl).origin;
 

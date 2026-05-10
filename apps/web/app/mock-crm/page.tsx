@@ -388,17 +388,105 @@ export default function MockCrmPage() {
               </Panel>
 
               <Panel title="Vehicle Details">
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 14,
-                  }}
-                >
+                <div style={{ display: 'grid', gap: 16 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1.1fr 0.9fr',
+                      gap: 14,
+                      alignItems: 'start',
+                    }}
+                  >
+                    <div
+                      style={{
+                        overflow: 'hidden',
+                        borderRadius: 18,
+                        border: '1px solid rgba(18, 31, 61, 0.08)',
+                        background: '#f6f9ff',
+                      }}
+                    >
+                      <img
+                        alt="2024 Ford F-150 Lariat inventory photo"
+                        src="https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&h=800&q=80"
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          height: 220,
+                          objectFit: 'cover',
+                        }}
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gap: 10,
+                      }}
+                    >
+                      <a
+                        href="/mock-inventory/2024-ford-f150-lariat"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minHeight: 44,
+                          borderRadius: 14,
+                          background: '#1848C6',
+                          color: '#ffffff',
+                          textDecoration: 'none',
+                          fontSize: 14,
+                          fontWeight: 700,
+                        }}
+                      >
+                        Open Inventory Detail
+                      </a>
+                      <div
+                        style={{
+                          borderRadius: 16,
+                          border: '1px solid rgba(18, 31, 61, 0.08)',
+                          background: '#fbfcff',
+                          padding: 14,
+                        }}
+                      >
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            letterSpacing: '0.14em',
+                            textTransform: 'uppercase',
+                            color: '#7a869e',
+                          }}
+                        >
+                          Inventory Match
+                        </p>
+                        <p
+                          style={{
+                            margin: '8px 0 0',
+                            fontSize: 14,
+                            lineHeight: 1.5,
+                            color: '#172341',
+                          }}
+                        >
+                          Live inventory listing for the 2024 Ford F-150 Lariat with gallery images
+                          and full vehicle detail page.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: 14,
+                    }}
+                  >
                   <FieldRow label="Vehicle" value="2024 Ford F-150 Lariat" />
                   <FieldRow label="Year Make Model" value="2024 Ford F-150 Lariat" />
                   <FieldRow label="Trim" value="Lariat" />
                   <FieldRow label="Body Style" value="Truck" />
+                  </div>
                 </div>
               </Panel>
             </div>

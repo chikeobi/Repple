@@ -8,6 +8,10 @@ create table if not exists public.repple_appointments (
   salesperson_name text,
   dealership_name text,
   address text,
+  vehicle_image_url text,
+  vehicle_image_provider text,
+  vehicle_image_source_page_url text,
+  vehicle_image_confidence text,
   created_at timestamptz default now()
 );
 

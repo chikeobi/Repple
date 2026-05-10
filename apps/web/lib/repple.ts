@@ -36,6 +36,10 @@ export function hydrateAppointmentRecord(row: NonNullable<ReturnType<typeof norm
     dealershipAddress: row.address.trim(),
     landingPageUrl: buildPublicLandingPageUrl(row.generated_id),
     previewImageUrl: buildPreviewImageUrl(row.generated_id),
+    vehicleImageUrl: row.vehicle_image_url,
+    vehicleImageProvider: row.vehicle_image_provider,
+    vehicleImageSourcePageUrl: row.vehicle_image_source_page_url,
+    vehicleImageConfidence: row.vehicle_image_confidence,
     smsText: '',
     createdAt: row.created_at,
   };

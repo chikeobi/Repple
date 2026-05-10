@@ -15,10 +15,12 @@ import {
   type AppointmentRecord,
 } from '../shared/repple-contract';
 import {
+  appendVinToVehicleImageUrl as appendSharedVinToVehicleImageUrl,
   buildVehicleImageRenderUrl as buildSharedVehicleImageRenderUrl,
   buildVehicleImageResolveUrl as buildSharedVehicleImageResolveUrl,
 } from '../shared/vehicle-images';
 import { startMockVideoGeneration } from './video-generation';
+import type { VehicleImageSelection } from '../shared/repple-contract';
 
 const PUBLIC_APP_FALLBACK_ORIGIN = 'https://repple.ai';
 
@@ -58,13 +60,17 @@ export function buildVehicleImageResolveUrl(
   return buildSharedVehicleImageResolveUrl(vehicle, origin);
 }
 
+export function appendVinToVehicleImageResolveUrl(url: string, vin?: string | null) {
+  return appendSharedVinToVehicleImageUrl(url, vin);
+}
+
 export function buildLandingPageUrl(id: string) {
   return buildPublicLandingPageUrl(id);
 }
 
 export function createAppointmentRecord(
   draft: AppointmentDraft,
-  options?: { id?: string },
+  options?: { id?: string; vehicleImage?: VehicleImageSelection | null },
 ): AppointmentRecord {
   const id = normalizeAppointmentId(options?.id ?? generateAppointmentId());
 
@@ -84,6 +90,10 @@ export function createAppointmentRecord(
     dealershipAddress: draft.dealershipAddress.trim() || DEALERSHIP_ADDRESS,
     landingPageUrl,
     previewImageUrl: buildPreviewImageUrl(id),
+    vehicleImageUrl: options?.vehicleImage?.url ?? null,
+    vehicleImageProvider: options?.vehicleImage?.provider ?? null,
+    vehicleImageSourcePageUrl: options?.vehicleImage?.sourcePageUrl ?? null,
+    vehicleImageConfidence: options?.vehicleImage?.confidence ?? null,
     smsText: '',
     createdAt: new Date().toISOString(),
   };
