@@ -1,12 +1,10 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
+import { getSiteUrl } from '../lib/env';
 import './globals.css';
 
-const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'https://repple.ai').replace(
-  /\/+$/,
-  '',
-);
+const siteUrl = getSiteUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

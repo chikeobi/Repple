@@ -1,17 +1,19 @@
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'wxt';
 
-function getSupabaseHostPermissions() {
+function getHostPermissions() {
   const supabaseUrl = import.meta.env.WXT_SUPABASE_URL;
+  const permissions = new Set<string>(['<all_urls>']);
 
   if (!supabaseUrl) {
-    return [];
+    return Array.from(permissions);
   }
 
   try {
-    return [`${new URL(supabaseUrl).origin}/*`];
+    permissions.add(`${new URL(supabaseUrl).origin}/*`);
+    return Array.from(permissions);
   } catch {
-    return [];
+    return Array.from(permissions);
   }
 }
 
@@ -21,8 +23,8 @@ export default defineConfig({
     name: 'Repple',
     description:
       'Generate personalized appointment media pages for dealership customers.',
-    permissions: ['storage', 'sidePanel', 'tabs'],
-    host_permissions: getSupabaseHostPermissions(),
+    permissions: ['activeTab', 'scripting', 'storage', 'sidePanel', 'tabs'],
+    host_permissions: getHostPermissions(),
     action: {
       default_title: 'Open Repple workspace',
     },

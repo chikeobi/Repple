@@ -1,16 +1,22 @@
 import type { InputHTMLAttributes } from 'react';
+import type { ReactNode } from 'react';
 
 import { cn } from '../utils/cn';
 
 type FormFieldProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
+  helpText?: string;
+  indicator?: ReactNode;
 };
 
-export function FormField({ className, label, ...props }: FormFieldProps) {
+export function FormField({ className, helpText, indicator, label, ...props }: FormFieldProps) {
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--repple-muted)]">
-        {label}
+      <span className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--repple-muted)]">
+          {label}
+        </span>
+        {indicator}
       </span>
       <input
         className={cn(
@@ -19,6 +25,9 @@ export function FormField({ className, label, ...props }: FormFieldProps) {
         )}
         {...props}
       />
+      {helpText ? (
+        <span className="-mt-0.5 text-[11px] leading-4 text-[var(--repple-muted)]">{helpText}</span>
+      ) : null}
     </label>
   );
 }

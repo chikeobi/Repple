@@ -1,9 +1,12 @@
 import {
+  buildPublicLandingPageUrl,
   buildPreviewImageUrl,
   buildSmsText,
   createAppointmentRecord,
   generateAppointmentId,
-  isValidAppointmentId,
+  isLegacyAppointmentId,
+  isStandardAppointmentId,
+  isSupportedAppointmentId,
   normalizeAppointmentId,
 } from './repple';
 import { getAppointment as getLocalAppointment, saveAppointment as saveLocalAppointment } from './storage';
@@ -13,9 +16,14 @@ import { hydrateMockVideoGeneration, reconcileMockVideoGeneration } from './vide
 
 const APPOINTMENTS_TABLE = 'repple_appointments';
 const MAX_SHORT_ID_ATTEMPTS = 5;
+const APPOINTMENT_SELECT =
+  'generated_id, legacy_generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at';
+const LEGACY_COMPAT_APPOINTMENT_SELECT =
+  'generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at';
 
 type SupabaseAppointmentRow = {
   generated_id: string | null;
+  legacy_generated_id?: string | null;
   customer_name: string | null;
   vehicle: string | null;
   appointment_time: string | null;
@@ -27,6 +35,7 @@ type SupabaseAppointmentRow = {
 
 type FrozenSchemaAppointmentRow = {
   generated_id: string;
+  legacy_generated_id: string | null;
   customer_name: string;
   vehicle: string;
   appointment_time: string;
@@ -47,9 +56,21 @@ function toError(error: SupabaseError) {
   return nextError;
 }
 
-function toSupabaseRow(
-  record: AppointmentRecord,
-): FrozenSchemaAppointmentRow {
+function toSupabaseRow(record: AppointmentRecord): FrozenSchemaAppointmentRow {
+  return {
+    generated_id: record.id,
+    legacy_generated_id: null,
+    customer_name: record.firstName,
+    vehicle: record.vehicle,
+    appointment_time: record.appointmentTime,
+    salesperson_name: record.salespersonName,
+    dealership_name: record.dealershipName,
+    address: record.dealershipAddress,
+    created_at: record.createdAt,
+  };
+}
+
+function toLegacyCompatibleSupabaseRow(record: AppointmentRecord) {
   return {
     generated_id: record.id,
     customer_name: record.firstName,
@@ -82,8 +103,22 @@ function normalizeSupabaseRow(
     return null;
   }
 
+  const normalizedGeneratedId = normalizeAppointmentId(row.generated_id);
+  const normalizedLegacyId = row.legacy_generated_id
+    ? normalizeAppointmentId(row.legacy_generated_id)
+    : null;
+
+  if (!isSupportedAppointmentId(normalizedGeneratedId)) {
+    return null;
+  }
+
+  if (normalizedLegacyId && !isLegacyAppointmentId(normalizedLegacyId)) {
+    return null;
+  }
+
   return {
-    generated_id: row.generated_id,
+    generated_id: normalizedGeneratedId,
+    legacy_generated_id: normalizedLegacyId,
     customer_name: row.customer_name,
     vehicle: row.vehicle,
     appointment_time: row.appointment_time,
@@ -96,18 +131,18 @@ function normalizeSupabaseRow(
 
 function fromSupabaseRow(
   row: FrozenSchemaAppointmentRow,
-  landingPageUrl: string,
+  _landingPageUrl: string,
 ): AppointmentRecord {
   const baseRecord = {
-    id: row.generated_id.trim(),
+    id: row.generated_id,
     firstName: row.customer_name.trim(),
     vehicle: row.vehicle.trim(),
     appointmentTime: row.appointment_time.trim(),
     salespersonName: row.salesperson_name.trim(),
     dealershipName: row.dealership_name.trim(),
     dealershipAddress: row.address.trim(),
-    landingPageUrl,
-    previewImageUrl: buildPreviewImageUrl(row.generated_id.trim()),
+    landingPageUrl: buildPublicLandingPageUrl(row.generated_id),
+    previewImageUrl: buildPreviewImageUrl(row.generated_id),
     smsText: '',
     createdAt: row.created_at,
   };
@@ -120,9 +155,7 @@ function fromSupabaseRow(
   };
 }
 
-export async function saveAppointmentRecord(
-  record: AppointmentRecord,
-): Promise<AppointmentRecord> {
+export async function saveAppointmentRecord(record: AppointmentRecord): Promise<AppointmentRecord> {
   if (shouldUseLocalFallback) {
     await saveLocalAppointment(record);
     return record;
@@ -134,9 +167,13 @@ export async function saveAppointmentRecord(
     );
   }
 
-  const { error } = await supabase
-    .from(APPOINTMENTS_TABLE)
-    .insert(toSupabaseRow(record));
+  let { error } = await supabase.from(APPOINTMENTS_TABLE).insert(toSupabaseRow(record));
+
+  if (error && isMissingLegacyColumnError(error)) {
+    ({ error } = await supabase
+      .from(APPOINTMENTS_TABLE)
+      .insert(toLegacyCompatibleSupabaseRow(record)));
+  }
 
   if (error) {
     if (isDuplicateShortIdError(error)) {
@@ -156,6 +193,28 @@ export async function saveAppointmentRecord(
 
 function isDuplicateShortIdError(error: SupabaseError) {
   return error.code === '23505';
+}
+
+function isMissingLegacyColumnError(error: SupabaseError) {
+  return error.code === '42703' || error.message.includes('legacy_generated_id');
+}
+
+async function selectAppointmentRow(id: string) {
+  const baseQuery = supabase!.from(APPOINTMENTS_TABLE);
+  const fullQuery = baseQuery.select(APPOINTMENT_SELECT);
+  const fullRequest = isLegacyAppointmentId(id)
+    ? fullQuery.or(`generated_id.eq.${id},legacy_generated_id.eq.${id}`)
+    : fullQuery.eq('generated_id', id);
+  const fullResult = await fullRequest.maybeSingle();
+
+  if (!fullResult.error || !isMissingLegacyColumnError(fullResult.error)) {
+    return fullResult;
+  }
+
+  return baseQuery
+    .select(LEGACY_COMPAT_APPOINTMENT_SELECT)
+    .eq('generated_id', id)
+    .maybeSingle();
 }
 
 export async function createAndSaveAppointmentRecord(
@@ -182,6 +241,10 @@ export async function createAndSaveAppointmentRecord(
       id: generateAppointmentId(),
     });
 
+    if (!isStandardAppointmentId(record.id)) {
+      continue;
+    }
+
     try {
       return await saveAppointmentRecord(record);
     } catch (error) {
@@ -206,7 +269,7 @@ export async function getAppointmentRecord(
 ): Promise<AppointmentRecord | null> {
   const normalizedId = normalizeAppointmentId(id);
 
-  if (!isValidAppointmentId(normalizedId)) {
+  if (!isSupportedAppointmentId(normalizedId)) {
     return null;
   }
 
@@ -232,17 +295,11 @@ export async function getAppointmentRecord(
     );
   }
 
-  const { data, error } = await supabase
-    .from(APPOINTMENTS_TABLE)
-    .select(
-      'generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at',
-    )
-    .eq('generated_id', normalizedId)
-    .maybeSingle();
+  const { data, error } = await selectAppointmentRow(normalizedId);
 
   if (error) {
     if (isDevelopment) {
-      return getLocalAppointment(id);
+      return getLocalAppointment(normalizedId);
     }
 
     throw toError(error);

@@ -1,3 +1,0 @@
-module.exports=[66188,a=>{"use strict";var b=a.i(7997);a.s(["default",0,function(){return(0,b.jsx)("main",{style:{minHeight:"100vh",padding:16,display:"flex",alignItems:"center",justifyContent:"center"},children:(0,b.jsx)("div",{style:{width:"100%",maxWidth:430,borderRadius:24,background:"#ffffff",border:"1px solid #e5eaf1",boxShadow:"0 20px 60px rgba(15, 23, 42, 0.08)",padding:22,textAlign:"center"},children:(0,b.jsx)("h1",{style:{margin:0,fontSize:28,lineHeight:1.15,fontWeight:700,color:"#0f172a"},children:"This appointment page is not available."})})})}])},2894,a=>{a.n(a.i(66188))}];
-
-//# sourceMappingURL=app_not-found_tsx_0u.hoe4._.js.map

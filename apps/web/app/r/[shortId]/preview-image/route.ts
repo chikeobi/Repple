@@ -1,5 +1,6 @@
 import { getAppointmentRecord } from '../../../../lib/appointments';
 import { renderAppointmentPreviewImage } from '../../../../lib/preview-image';
+import { buildFallbackVehicleImageDataUrl, resolveVehicleImage } from '../../../../lib/vehicle-images';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,16 @@ export async function GET(
 ) {
   const { shortId } = await params;
   const record = await getAppointmentRecord(shortId);
-  const response = renderAppointmentPreviewImage(record);
+  const resolvedImage = record ? await resolveVehicleImage(record.vehicle) : null;
+  const response = renderAppointmentPreviewImage(
+    record
+      ? {
+          ...record,
+          videoThumbnailUrl:
+            resolvedImage?.imageUrl ?? buildFallbackVehicleImageDataUrl(record.vehicle),
+        }
+      : record,
+  );
 
   response.headers.set(
     'cache-control',

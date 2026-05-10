@@ -7,6 +7,7 @@ type PersonalizedVideoCardProps = {
   subtitle: string;
   compact?: boolean;
   onPlay?: () => void;
+  showTextOverlay?: boolean;
 };
 
 export function PersonalizedVideoCard({
@@ -16,13 +17,14 @@ export function PersonalizedVideoCard({
   subtitle,
   compact,
   onPlay,
+  showTextOverlay = true,
 }: PersonalizedVideoCardProps) {
   return (
     <div
       className={
         compact
-          ? 'relative aspect-[16/9] overflow-hidden rounded-[16px] border border-[#E5EAF1] bg-[#EEF3FA] shadow-[0_8px_22px_rgba(15,23,42,0.05)]'
-          : 'relative aspect-[16/9] overflow-hidden rounded-[18px] border border-[#E5EAF1] bg-[#EEF3FA] shadow-[0_10px_28px_rgba(15,23,42,0.06)]'
+          ? 'relative aspect-[16/9] overflow-hidden rounded-[18px] bg-[#EEF3FA] shadow-[0_16px_36px_rgba(15,23,42,0.08)]'
+          : 'relative aspect-[16/9] overflow-hidden rounded-[20px] bg-[#EEF3FA] shadow-[0_18px_42px_rgba(15,23,42,0.1)]'
       }
     >
       <img
@@ -38,11 +40,11 @@ export function PersonalizedVideoCard({
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-[#1473FF]" />
               <p className="text-[13px] font-medium text-[#0F1728]">
-                Generating personalized video...
+                Preparing your preview
               </p>
             </div>
             <p className="mt-1 text-[12px] leading-5 text-[#5B657A]">
-              Creating a custom welcome clip for this appointment.
+              A premium customer card is almost ready.
             </p>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#E7EDF5]">
               <div className="repple-progress-bar h-full w-1/2 rounded-full bg-[#1473FF]" />
@@ -52,7 +54,8 @@ export function PersonalizedVideoCard({
       ) : (
         <>
           <button
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0 flex items-center justify-center disabled:cursor-default"
+            disabled={!onPlay}
             onClick={onPlay}
             type="button"
           >
@@ -63,15 +66,14 @@ export function PersonalizedVideoCard({
             </span>
           </button>
 
-          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3">
-            <div className="rounded-[12px] bg-[rgba(17,24,39,0.74)] px-3 py-2 text-white shadow-[0_8px_20px_rgba(0,0,0,0.16)] backdrop-blur">
-              <p className="text-[13px] font-medium">{title}</p>
-              <p className="mt-0.5 text-[12px] text-white/74">{subtitle}</p>
+          {showTextOverlay ? (
+            <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3">
+              <div className="rounded-[12px] bg-[rgba(17,24,39,0.74)] px-3 py-2 text-white shadow-[0_8px_20px_rgba(0,0,0,0.16)] backdrop-blur">
+                <p className="text-[13px] font-medium">{title}</p>
+                <p className="mt-0.5 text-[12px] text-white/74">{subtitle}</p>
+              </div>
             </div>
-            <div className="rounded-full border border-white/70 bg-white/92 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-[#1473FF] shadow-[0_6px_16px_rgba(15,23,42,0.08)]">
-              Ready
-            </div>
-          </div>
+          ) : null}
         </>
       )}
     </div>

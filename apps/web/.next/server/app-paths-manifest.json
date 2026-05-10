@@ -1,8 +1,0 @@
-{
-  "/_global-error/page": "app/_global-error/page.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/page": "app/page.js",
-  "/r/[shortId]/opengraph-image/route": "app/r/[shortId]/opengraph-image/route.js",
-  "/r/[shortId]/page": "app/r/[shortId]/page.js",
-  "/r/[shortId]/preview-image/route": "app/r/[shortId]/preview-image/route.js"
-}

@@ -3,18 +3,21 @@ import { createClient } from '@supabase/supabase-js';
 
 import {
   hydrateAppointmentRecord,
-  isValidAppointmentId,
+  isLegacyAppointmentId,
+  isSupportedAppointmentId,
   normalizeAppointmentId,
   normalizeSupabaseRow,
   type AppointmentRecord,
   type SupabaseAppointmentRow,
 } from './repple';
+import { getSupabasePublicEnv } from './env';
 
 const APPOINTMENTS_TABLE = 'repple_appointments';
-const supabaseUrl =
-  process.env.SUPABASE_URL?.trim() || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-const supabaseAnonKey =
-  process.env.SUPABASE_ANON_KEY?.trim() || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const APPOINTMENT_SELECT =
+  'generated_id, legacy_generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at';
+const LEGACY_COMPAT_APPOINTMENT_SELECT =
+  'generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at';
+const { supabaseUrl, supabaseAnonKey } = getSupabasePublicEnv();
 
 const supabase =
   supabaseUrl && supabaseAnonKey
@@ -27,25 +30,38 @@ const supabase =
       })
     : null;
 
+function isMissingLegacyColumnError(message: string) {
+  return message.includes('legacy_generated_id');
+}
+
 export const getAppointmentRecord = cache(
   async (shortId: string): Promise<AppointmentRecord | null> => {
     if (!supabase) {
-      return null;
+      throw new Error(
+        'Supabase is not configured for the web app. Set SUPABASE_URL and SUPABASE_ANON_KEY.',
+      );
     }
 
     const normalizedShortId = normalizeAppointmentId(shortId);
 
-    if (!isValidAppointmentId(normalizedShortId)) {
+    if (!isSupportedAppointmentId(normalizedShortId)) {
       return null;
     }
 
-    const { data, error } = await supabase
-      .from(APPOINTMENTS_TABLE)
-      .select(
-        'generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at',
-      )
-      .eq('generated_id', normalizedShortId)
-      .maybeSingle();
+    const baseQuery = supabase.from(APPOINTMENTS_TABLE).select(APPOINTMENT_SELECT);
+    let { data, error } = await (isLegacyAppointmentId(normalizedShortId)
+      ? baseQuery.or(
+          `generated_id.eq.${normalizedShortId},legacy_generated_id.eq.${normalizedShortId}`,
+        )
+      : baseQuery.eq('generated_id', normalizedShortId)).maybeSingle();
+
+    if (error && isMissingLegacyColumnError(error.message)) {
+      ({ data, error } = await supabase
+        .from(APPOINTMENTS_TABLE)
+        .select(LEGACY_COMPAT_APPOINTMENT_SELECT)
+        .eq('generated_id', normalizedShortId)
+        .maybeSingle());
+    }
 
     if (error) {
       throw new Error(error.message);

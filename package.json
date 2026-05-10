@@ -7,6 +7,8 @@
     "dev": "wxt",
     "build": "wxt build",
     "build:web": "npm run build --prefix apps/web",
+    "migrate:ids": "node scripts/migrate-generated-ids.mjs",
+    "verify:e2e": "node scripts/verify-e2e.mjs",
     "zip": "wxt zip",
     "typecheck": "tsc --noEmit",
     "typecheck:web": "npm run typecheck --prefix apps/web",

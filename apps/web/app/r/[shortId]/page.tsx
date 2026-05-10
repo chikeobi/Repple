@@ -8,6 +8,7 @@ import { AppointmentCard } from './appointment-card';
 export const dynamic = 'force-dynamic';
 
 type RouteParams = Promise<{ shortId: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export async function generateMetadata({
   params,
@@ -66,15 +67,24 @@ export async function generateMetadata({
 
 export default async function PublicAppointmentPage({
   params,
+  searchParams,
 }: {
   params: RouteParams;
+  searchParams: SearchParams;
 }) {
   const { shortId } = await params;
+  const resolvedSearchParams = await searchParams;
   const record = await getAppointmentRecord(shortId);
 
   if (!record) {
     notFound();
   }
 
-  return <AppointmentCard initialRecord={record} />;
+  const embedValue = resolvedSearchParams.embed;
+  const embed =
+    embedValue === '1' ||
+    embedValue === 'true' ||
+    (Array.isArray(embedValue) && embedValue.includes('1'));
+
+  return <AppointmentCard embed={embed} initialRecord={record} />;
 }
