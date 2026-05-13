@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 function SidebarLink({
   active = false,
   label,
@@ -25,7 +27,7 @@ function Panel({
   children,
   title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   title: string;
 }) {
   return (
@@ -210,7 +212,7 @@ export default function MockCrmPage() {
                 color: '#132247',
               }}
             >
-              ABC Motors
+              North Coast Auto
             </p>
           </div>
 
@@ -315,7 +317,7 @@ export default function MockCrmPage() {
                     color: '#52617e',
                   }}
                 >
-                  Appointment scheduled with Mike Anderson at ABC Motors
+                  Appointment scheduled with Mike Anderson at North Coast Auto
                 </p>
               </div>
 
@@ -344,7 +346,7 @@ export default function MockCrmPage() {
                     color: '#132247',
                   }}
                 >
-                  ABC Motors
+                  North Coast Auto
                 </span>
                 <span
                   style={{
@@ -377,7 +379,7 @@ export default function MockCrmPage() {
                   <FieldRow label="Customer Name" value="Taylor Johnson" />
                   <FieldRow label="Phone" value="(832) 555-0198" />
                   <FieldRow label="Sales Advisor" value="Mike Anderson" />
-                  <FieldRow label="Dealership Name" value="ABC Motors" />
+                  <FieldRow label="Dealership Name" value="North Coast Auto" />
                   <div style={{ gridColumn: '1 / -1' }}>
                     <FieldRow
                       label="Address"
@@ -419,59 +421,34 @@ export default function MockCrmPage() {
 
                     <div
                       style={{
-                        display: 'grid',
-                        gap: 10,
+                        borderRadius: 16,
+                        border: '1px solid rgba(18, 31, 61, 0.08)',
+                        background: '#fbfcff',
+                        padding: 14,
                       }}
                     >
-                      <a
-                        href="/mock-inventory/2024-ford-f150-lariat"
+                      <p
                         style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          minHeight: 44,
-                          borderRadius: 14,
-                          background: '#1848C6',
-                          color: '#ffffff',
-                          textDecoration: 'none',
-                          fontSize: 14,
+                          margin: 0,
+                          fontSize: 12,
                           fontWeight: 700,
+                          letterSpacing: '0.14em',
+                          textTransform: 'uppercase',
+                          color: '#7a869e',
                         }}
                       >
-                        Open Inventory Detail
-                      </a>
-                      <div
+                        Inventory Match
+                      </p>
+                      <p
                         style={{
-                          borderRadius: 16,
-                          border: '1px solid rgba(18, 31, 61, 0.08)',
-                          background: '#fbfcff',
-                          padding: 14,
+                          margin: '8px 0 0',
+                          fontSize: 14,
+                          lineHeight: 1.5,
+                          color: '#172341',
                         }}
                       >
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            letterSpacing: '0.14em',
-                            textTransform: 'uppercase',
-                            color: '#7a869e',
-                          }}
-                        >
-                          Inventory Match
-                        </p>
-                        <p
-                          style={{
-                            margin: '8px 0 0',
-                            fontSize: 14,
-                            lineHeight: 1.5,
-                            color: '#172341',
-                          }}
-                        >
-                          Live inventory listing for the 2024 Ford F-150 Lariat with gallery images
-                          and full vehicle detail page.
-                        </p>
-                      </div>
+                        Visible vehicle imagery is present directly on this CRM fixture so Repple can test extraction without relying on a second mock inventory route.
+                      </p>
                     </div>
                   </div>
 
@@ -502,7 +479,7 @@ export default function MockCrmPage() {
                   <FieldRow label="Appointment Time" value="May 10 at 3:30 PM" />
                   <FieldRow label="Scheduled For" value="May 10 at 3:30 PM" />
                   <FieldRow label="Salesperson" value="Mike Anderson" />
-                  <FieldRow label="Location" value="ABC Motors" />
+                  <FieldRow label="Location" value="North Coast Auto" />
                 </div>
               </Panel>
 
@@ -511,7 +488,7 @@ export default function MockCrmPage() {
                   <ActivityItem
                     title="Appointment Confirmed"
                     time="Today 10:42 AM"
-                    body="Taylor Johnson confirmed the visit for May 10 at 3:30 PM to view the 2024 Ford F-150 Lariat at ABC Motors."
+                    body="Taylor Johnson confirmed the visit for May 10 at 3:30 PM to view the 2024 Ford F-150 Lariat at North Coast Auto."
                   />
                   <ActivityItem
                     title="Call Summary"
