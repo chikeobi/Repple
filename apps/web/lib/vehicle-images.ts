@@ -1,28 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
-
 import {
   buildFallbackVehicleImageDataUrl,
   buildFallbackVehicleImageSvg,
   parseVehicleDescriptor,
   type VehicleBodyStyle,
 } from './shared/vehicle-images';
-import { getSupabasePublicEnv } from './env';
+import { getSupabaseAdminClient } from './supabase-admin';
 
 const VEHICLE_IMAGE_CACHE_TABLE = 'repple_vehicle_image_cache';
 const VEHICLE_IMAGE_PROVIDER_URL_TEMPLATE =
   process.env.VEHICLE_IMAGE_PROVIDER_URL_TEMPLATE?.trim() || null;
-const { supabaseUrl, supabaseAnonKey } = getSupabasePublicEnv();
-
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false,
-        },
-      })
-    : null;
 
 type VehicleImageCacheRow = {
   cache_key: string;
@@ -57,6 +43,14 @@ export type ResolvedVehicleImage = {
   fallbackSvg: string | null;
 };
 
+function getVehicleImageCacheClient() {
+  try {
+    return getSupabaseAdminClient();
+  } catch {
+    return null;
+  }
+}
+
 function buildVehicleImageCacheKey(vehicleQuery: string, vin?: string | null) {
   const normalizedVin = vin?.trim().toUpperCase() ?? '';
 
@@ -86,30 +80,98 @@ function normalizeRemoteImageUrl(url: string) {
   }
 }
 
+function isPrivateHostname(hostname: string) {
+  const normalizedHostname = hostname.trim().toLowerCase();
+
+  if (!normalizedHostname) {
+    return true;
+  }
+
+  if (normalizedHostname === 'localhost' || normalizedHostname.endsWith('.localhost')) {
+    return true;
+  }
+
+  if (
+    normalizedHostname === '127.0.0.1' ||
+    normalizedHostname === '0.0.0.0' ||
+    normalizedHostname === '::1'
+  ) {
+    return true;
+  }
+
+  if (/^10\.\d+\.\d+\.\d+$/.test(normalizedHostname)) {
+    return true;
+  }
+
+  if (/^192\.168\.\d+\.\d+$/.test(normalizedHostname)) {
+    return true;
+  }
+
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(normalizedHostname)) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizePersistedPublicImageUrl(url: string | null | undefined) {
+  const trimmedUrl = url?.trim() ?? '';
+
+  if (!trimmedUrl) {
+    return null;
+  }
+
+  try {
+    const imageUrl = new URL(trimmedUrl);
+
+    if (imageUrl.protocol !== 'https:' && imageUrl.protocol !== 'http:') {
+      return null;
+    }
+
+    if (process.env.NODE_ENV === 'production' && isPrivateHostname(imageUrl.hostname)) {
+      return null;
+    }
+
+    return normalizeRemoteImageUrl(imageUrl.toString());
+  } catch {
+    return null;
+  }
+}
+
 async function readCachedVehicleImage(cacheKey: string) {
+  const supabase = getVehicleImageCacheClient();
+
   if (!supabase) {
     return null;
   }
 
-  const { data, error } = await supabase
-    .from(VEHICLE_IMAGE_CACHE_TABLE)
+  const cacheTable = supabase.from(VEHICLE_IMAGE_CACHE_TABLE) as any;
+  const { data, error } = await cacheTable
     .select('cache_key, vehicle_query, body_style, provider, image_url, source_page_url, created_at')
     .eq('cache_key', cacheKey)
     .maybeSingle();
 
-  if (error || !data?.image_url) {
+  const normalizedImageUrl = normalizePersistedPublicImageUrl(data?.image_url);
+
+  if (error || !normalizedImageUrl) {
     return null;
   }
 
-  return data as VehicleImageCacheRow;
+  return {
+    ...((data ?? {}) as VehicleImageCacheRow),
+    image_url: normalizedImageUrl,
+  };
 }
 
 async function cacheVehicleImage(row: VehicleImageCacheRow) {
+  const supabase = getVehicleImageCacheClient();
+
   if (!supabase) {
     return;
   }
 
-  const { error } = await supabase.from(VEHICLE_IMAGE_CACHE_TABLE).insert(row);
+  const cacheTable = supabase.from(VEHICLE_IMAGE_CACHE_TABLE) as any;
+  const { error } = await cacheTable.insert(row);
 
   if (error && error.code !== '23505') {
     console.error('Unable to cache vehicle image', error.message);
@@ -130,7 +192,11 @@ export async function cacheProvidedVehicleImage(input: {
     return null;
   }
 
-  const imageUrl = normalizeRemoteImageUrl(input.imageUrl);
+  const imageUrl = normalizePersistedPublicImageUrl(input.imageUrl);
+
+  if (!imageUrl) {
+    return null;
+  }
 
   await cacheVehicleImage({
     cache_key: buildVehicleImageCacheKey(input.vehicleQuery, input.vin),
@@ -309,7 +375,13 @@ async function fetchExternalVehicleImage(
     return null;
   }
 
-  const isValid = await validateVehicleProviderImage(url);
+  const normalizedUrl = normalizePersistedPublicImageUrl(url);
+
+  if (!normalizedUrl) {
+    return null;
+  }
+
+  const isValid = await validateVehicleProviderImage(normalizedUrl);
 
   if (!isValid) {
     return null;
@@ -317,7 +389,7 @@ async function fetchExternalVehicleImage(
 
   return {
     bodyStyle: decodedVin?.bodyStyle ?? parseVehicleDescriptor(vehicleQuery).bodyStyle,
-    imageUrl: normalizeRemoteImageUrl(url),
+    imageUrl: normalizedUrl,
     provider: decodedVin ? ('vin-lookup' as const) : ('external-api' as const),
     sourcePageUrl: null,
   };
