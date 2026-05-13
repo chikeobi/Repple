@@ -1,13 +1,29 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { browser } from 'wxt/browser';
 
+import { AppointmentCard } from '../../components/AppointmentCard';
 import { BrandMark } from '../../components/BrandMark';
 import { Button } from '../../components/Button';
 import { FormField } from '../../components/FormField';
-import { PersonalizedVideoCard } from '../../components/PersonalizedVideoCard';
 import { SectionCard } from '../../components/SectionCard';
+import {
+  formatOrganizationSubscriptionStatus,
+  isOrganizationSubscriptionActive,
+} from '../../shared/billing';
+import type { WorkspaceContext } from '../../shared/auth-contract';
 import { extractAutofillHints } from '../../utils/autofill';
-import { createAndSaveAppointmentRecord, getAppointmentRecord } from '../../utils/appointments';
+import { recordWorkspaceAppointmentEvent } from '../../utils/analytics';
+import { debugLog } from '../../utils/debug';
+import {
+  createAndSaveAppointmentRecord,
+  getAppointmentRecord,
+  listRecentAppointmentRecords,
+} from '../../utils/appointments';
+import {
+  extractPageContextFromDocument,
+  type PageExtractionPayload,
+} from '../../utils/page-context';
+import { createAppointmentRecord } from '../../utils/repple';
 import { resolveVehicleImageSelection, type VehiclePageMediaContext } from '../../utils/vehicle-images';
 import type {
   AppointmentDraft,
@@ -27,6 +43,10 @@ const initialDraft: AppointmentDraft = {
 
 type DraftKey = keyof AppointmentDraft;
 type DetectionStatus = 'idle' | 'applied' | 'empty';
+type WorkspaceTab = 'create' | 'activity';
+type DetectOptions = {
+  force?: boolean;
+};
 const REQUIRED_GENERATION_FIELDS: DraftKey[] = [
   'firstName',
   'vehicle',
@@ -45,11 +65,11 @@ const REPPLE_DEBUG_PREFIX = '[Repple][detect]';
 const PREVIEW_SHORT_ID = 'PREVUE';
 const PAGE_READER_SCRIPT_PATH = '/content-scripts/page-reader.js';
 const PAGE_CARD_PREVIEW_ROOT_ID = 'repple-card-preview-root';
+const MIN_SCAN_REFRESH_INTERVAL_MS = 1200;
 
-type PageExtractionPayload = {
-  title: string;
-  visibleText: string;
-};
+function isSupportedCrmPageUrl(url?: string) {
+  return Boolean(url && /^https?:\/\//i.test(url));
+}
 
 function mergeDraftFromHints(
   draft: AppointmentDraft,
@@ -80,22 +100,115 @@ function mergeDraftFromHints(
   return { nextDraft, nextAutofill, changed };
 }
 
-export function WorkspacePage() {
+function formatActivityTimestamp(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Recently generated';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+export function WorkspacePage({
+  onSignOut,
+  workspace,
+}: {
+  onSignOut?: () => void | Promise<void>;
+  workspace: WorkspaceContext;
+}) {
+  const organization = workspace.activeMembership.organization;
+  const appliedWorkspaceDefaultsRef = useRef<string | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('create');
   const [draft, setDraft] = useState<AppointmentDraft>(initialDraft);
   const [generated, setGenerated] = useState<AppointmentRecord | null>(null);
+  const [activityRecords, setActivityRecords] = useState<AppointmentRecord[]>([]);
+  const [isActivityLoading, setIsActivityLoading] = useState(false);
   const [smsDraft, setSmsDraft] = useState('');
   const [copyLabel, setCopyLabel] = useState('Copy Message');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
-  const [detectedHints, setDetectedHints] = useState<AutofillHints | null>(null);
+  const [, setDetectedHints] = useState<AutofillHints | null>(null);
   const [resolvedVehicleImage, setResolvedVehicleImage] = useState<VehicleImageSelection | null>(null);
+  const [latestPageContext, setLatestPageContext] = useState<PageExtractionPayload | null>(null);
   const [pageScanVersion, setPageScanVersion] = useState(0);
   const [, setDetectionStatus] = useState<DetectionStatus>('idle');
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
   const lastAutofillRef = useRef<Partial<AppointmentDraft>>({});
+  const lastDetectedTabKeyRef = useRef<string | null>(null);
+  const lastDetectionAtRef = useRef(0);
+  const detectionInFlightRef = useRef(false);
+  const pendingForcedDetectionRef = useRef(false);
+  const detectFromActiveTabRef = useRef<(options?: DetectOptions) => Promise<void>>(
+    async () => {},
+  );
+  const loadActivityRecordsRef = useRef<() => Promise<void>>(async () => {});
+  const previewRecord = useMemo(() => {
+    const previewDraft: AppointmentDraft = {
+      firstName: draft.firstName.trim() || 'Customer',
+      vehicle: draft.vehicle.trim() || 'Vehicle details',
+      appointmentTime: draft.appointmentTime.trim() || 'Appointment time',
+      salespersonName:
+        draft.salespersonName.trim() || workspace.profile.full_name?.trim() || 'Sales Advisor',
+      dealershipName: draft.dealershipName.trim() || organization.name.trim() || 'Dealership',
+      dealershipAddress:
+        draft.dealershipAddress.trim() || organization.address?.trim() || 'Dealership address',
+    };
+
+    const record = createAppointmentRecord(previewDraft, {
+      id: PREVIEW_SHORT_ID,
+      vehicleImage: resolvedVehicleImage,
+      smsTemplate: workspace.organizationSettings?.default_sms_template ?? null,
+      dealershipLogoUrl: organization.logo_url ?? null,
+      dealershipBrandColor: organization.brand_color ?? null,
+    });
+
+    return {
+      ...record,
+      salespersonTitle: workspace.profile.title ?? null,
+      salespersonAvatarUrl: workspace.profile.avatar_url ?? null,
+    };
+  }, [
+    draft.appointmentTime,
+    draft.dealershipAddress,
+    draft.dealershipName,
+    draft.firstName,
+    draft.salespersonName,
+    draft.vehicle,
+    organization.address,
+    organization.name,
+    resolvedVehicleImage,
+    workspace.organizationSettings?.default_sms_template,
+    workspace.profile.avatar_url,
+    workspace.profile.full_name,
+    workspace.profile.title,
+  ]);
 
   const canGenerate = REQUIRED_GENERATION_FIELDS.every((field) => draft[field].trim().length > 0);
+  const hasActiveBilling = isOrganizationSubscriptionActive(organization.subscription_status);
+
+  useEffect(() => {
+    const workspaceKey = `${workspace.profile.id}:${organization.id}`;
+
+    if (appliedWorkspaceDefaultsRef.current === workspaceKey) {
+      return;
+    }
+
+    setDraft((current) => ({
+      ...current,
+      salespersonName: current.salespersonName.trim() || workspace.profile.full_name?.trim() || '',
+      dealershipName: current.dealershipName.trim() || organization.name.trim(),
+      dealershipAddress: current.dealershipAddress.trim() || organization.address?.trim() || '',
+    }));
+
+    appliedWorkspaceDefaultsRef.current = workspaceKey;
+  }, [organization.address, organization.id, organization.name, workspace.profile.full_name, workspace.profile.id]);
 
   useEffect(() => {
     if (!generated) {
@@ -130,7 +243,7 @@ export function WorkspacePage() {
     }
 
     const intervalId = window.setInterval(() => {
-      void getAppointmentRecord(generated.id, generated.landingPageUrl)
+      void getAppointmentRecord(generated.id, generated.landingPageUrl, workspace)
         .then((record) => {
           if (record) {
             setGenerated(record);
@@ -148,6 +261,19 @@ export function WorkspacePage() {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  async function loadActivityRecords() {
+    setIsActivityLoading(true);
+
+    try {
+      const records = await listRecentAppointmentRecords(workspace);
+      setActivityRecords(records);
+    } finally {
+      setIsActivityLoading(false);
+    }
+  }
+
+  loadActivityRecordsRef.current = loadActivityRecords;
+
   async function ensurePageReader(tabId: number) {
     try {
       await browser.scripting.executeScript({
@@ -155,12 +281,12 @@ export function WorkspacePage() {
         files: [PAGE_READER_SCRIPT_PATH],
       });
 
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'inject-page-reader',
         tabId,
       });
     } catch (error) {
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'inject-page-reader-failed',
         tabId,
         error,
@@ -168,219 +294,32 @@ export function WorkspacePage() {
     }
   }
 
-  async function readHintsWithScript(tabId: number): Promise<AutofillHints | null> {
+  async function readPageContextWithScript(tabId: number): Promise<PageExtractionPayload | null> {
     try {
       const [result] = await browser.scripting.executeScript({
         target: { tabId },
-        func: (): PageExtractionPayload => {
-          const crmLabelKeywords =
-            /customer|client|guest|buyer|lead|prospect|vehicle|car|model|appointment|appt|scheduled|delivery|arrival|sales|advisor|consultant|dealer|dealership|store|location|address/i;
-
-          function isVisibleElement(element: Element) {
-            if (!(element instanceof HTMLElement)) {
-              return false;
-            }
-
-            const style = window.getComputedStyle(element);
-            const rect = element.getBoundingClientRect();
-
-            return (
-              style.display !== 'none' &&
-              style.visibility !== 'hidden' &&
-              rect.width > 0 &&
-              rect.height > 0
-            );
-          }
-
-          function getNodeText(node: Element | null | undefined) {
-            if (!node || !isVisibleElement(node)) {
-              return '';
-            }
-
-            return node.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-          }
-
-          function getFieldLabel(
-            field: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-          ) {
-            const associatedLabel =
-              (field.id ? document.querySelector(`label[for="${field.id}"]`) : null) ??
-              field.closest('label');
-
-            const associatedLabelText = getNodeText(associatedLabel);
-
-            if (associatedLabelText) {
-              return associatedLabelText.replace(/\s*:\s*$/, '').trim();
-            }
-
-            const previousElementText = getNodeText(field.previousElementSibling);
-
-            if (previousElementText && crmLabelKeywords.test(previousElementText)) {
-              return previousElementText.replace(/\s*:\s*$/, '').trim();
-            }
-
-            return (
-              field.getAttribute('aria-label')?.trim() ||
-              field.getAttribute('placeholder')?.trim() ||
-              field.getAttribute('name')?.trim() ||
-              field.id.trim()
-            );
-          }
-
-          function getFieldContext() {
-            return Array.from(document.querySelectorAll('input, textarea, select'))
-              .map((field) => {
-                if (
-                  !(
-                    field instanceof HTMLInputElement ||
-                    field instanceof HTMLTextAreaElement ||
-                    field instanceof HTMLSelectElement
-                  )
-                ) {
-                  return '';
-                }
-
-                const value = 'value' in field ? field.value.trim() : '';
-                const label = getFieldLabel(field);
-
-                if (!value || !label) {
-                  return '';
-                }
-
-                return `${label}: ${value}`;
-              })
-              .filter(Boolean)
-              .join('\n');
-          }
-
-          function getAssociatedFieldValue(label: HTMLLabelElement) {
-            const labelledField =
-              (label.htmlFor ? document.getElementById(label.htmlFor) : null) ??
-              label.querySelector('input, textarea, select');
-
-            if (
-              labelledField instanceof HTMLInputElement ||
-              labelledField instanceof HTMLTextAreaElement ||
-              labelledField instanceof HTMLSelectElement
-            ) {
-              return labelledField.value.trim();
-            }
-
-            return '';
-          }
-
-          function getSiblingValue(labelElement: Element) {
-            const siblingCandidates = [
-              labelElement.nextElementSibling,
-              labelElement.parentElement?.nextElementSibling,
-              labelElement.parentElement?.querySelector(':scope > :last-child'),
-            ];
-
-            for (const candidate of siblingCandidates) {
-              const text = getNodeText(candidate);
-
-              if (text && text !== getNodeText(labelElement)) {
-                return text;
-              }
-            }
-
-            const row = labelElement.closest('tr');
-
-            if (row) {
-              const cells = Array.from(row.children).filter((cell) => cell !== labelElement);
-
-              for (const cell of cells) {
-                const text = getNodeText(cell);
-
-                if (text) {
-                  return text;
-                }
-              }
-            }
-
-            return '';
-          }
-
-          function getLabelValueContext() {
-            const pairs = new Set<string>();
-
-            for (const label of Array.from(document.querySelectorAll('label'))) {
-              if (!isVisibleElement(label)) {
-                continue;
-              }
-
-              const labelText = getNodeText(label);
-
-              if (!labelText || !crmLabelKeywords.test(labelText)) {
-                continue;
-              }
-
-              const value = getAssociatedFieldValue(label);
-
-              if (value) {
-                pairs.add(`${labelText}: ${value}`);
-              }
-            }
-
-            const nearbyLabels = Array.from(
-              document.querySelectorAll(
-                'dt, th, [data-label], [class*="label"], [class*="Label"], [class*="field-name"]',
-              ),
-            ).slice(0, 400);
-
-            for (const labelElement of nearbyLabels) {
-              if (!isVisibleElement(labelElement)) {
-                continue;
-              }
-
-              const labelText = getNodeText(labelElement);
-
-              if (!labelText || !crmLabelKeywords.test(labelText)) {
-                continue;
-              }
-
-              const value = getSiblingValue(labelElement);
-
-              if (value) {
-                pairs.add(`${labelText}: ${value}`);
-              }
-            }
-
-            return Array.from(pairs).join('\n');
-          }
-
-          const bodyText = document.body?.innerText?.trim() ?? '';
-          const fieldText = getFieldContext();
-          const labelValueText = getLabelValueContext();
-          const visibleText = [document.title, labelValueText, fieldText, bodyText]
-            .filter(Boolean)
-            .join('\n');
-
-          return {
-            title: document.title,
-            visibleText,
-          };
-        },
+        func: extractPageContextFromDocument,
       });
 
-      const payload = result?.result;
+      const payload = result?.result as PageExtractionPayload | undefined;
 
       if (!payload?.visibleText) {
         return null;
       }
 
-      const hints = extractAutofillHints(payload.visibleText, payload.title);
-
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'script-scan',
         tabId,
         title: payload.title,
-        hints,
+        fieldCount: payload.fieldEntries.length,
+        imageCount: payload.images.length,
+        inventoryLinkCount: payload.inventoryLinks.length,
+        vin: payload.vin,
       });
 
-      return hints;
+      return payload;
     } catch (error) {
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'script-scan-failed',
         tabId,
         error,
@@ -389,50 +328,23 @@ export function WorkspacePage() {
     }
   }
 
-  async function readHintsFromTab(tabId: number, attempt = 0): Promise<AutofillHints | null> {
-    const scriptedHints = await readHintsWithScript(tabId);
-
-    if (scriptedHints) {
-      return scriptedHints;
-    }
-
-    try {
-      const hints = (await browser.tabs.sendMessage(tabId, {
-        type: 'repple:extract-page-context',
-      })) as AutofillHints | undefined;
-
-      if (hints) {
-        return hints;
-      }
-    } catch (error) {
-      if (attempt === 0) {
-        await ensurePageReader(tabId);
-      }
-
-      if (attempt >= 2) {
-        console.debug(REPPLE_DEBUG_PREFIX, 'sendMessage failed', error);
-      }
-    }
-
-    if (attempt >= 2) {
-      return null;
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 180));
-    return readHintsFromTab(tabId, attempt + 1);
-  }
-
-  async function readVehicleMediaFromTab(
+  async function readPageContextFromTab(
     tabId: number,
     attempt = 0,
-  ): Promise<VehiclePageMediaContext | null> {
-    try {
-      const context = (await browser.tabs.sendMessage(tabId, {
-        type: 'repple:extract-vehicle-media',
-      })) as VehiclePageMediaContext | undefined;
+  ): Promise<PageExtractionPayload | null> {
+    const scriptedPayload = await readPageContextWithScript(tabId);
 
-      if (context) {
-        return context;
+    if (scriptedPayload) {
+      return scriptedPayload;
+    }
+
+    try {
+      const payload = (await browser.tabs.sendMessage(tabId, {
+        type: 'repple:extract-page-context',
+      })) as PageExtractionPayload | undefined;
+
+      if (payload?.visibleText) {
+        return payload;
       }
     } catch (error) {
       if (attempt === 0) {
@@ -440,11 +352,7 @@ export function WorkspacePage() {
       }
 
       if (attempt >= 2) {
-        console.debug(REPPLE_DEBUG_PREFIX, {
-          action: 'vehicle-media-read-failed',
-          tabId,
-          error,
-        });
+        debugLog(REPPLE_DEBUG_PREFIX, 'sendMessage failed', error);
       }
     }
 
@@ -453,13 +361,19 @@ export function WorkspacePage() {
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 180));
-    return readVehicleMediaFromTab(tabId, attempt + 1);
+    return readPageContextFromTab(tabId, attempt + 1);
   }
 
-  async function detectFromActiveTab() {
-    if (generated) {
+  async function detectFromActiveTab(options: DetectOptions = {}) {
+    if (detectionInFlightRef.current) {
+      if (options.force) {
+        pendingForcedDetectionRef.current = true;
+      }
+
       return;
     }
+
+    detectionInFlightRef.current = true;
 
     try {
       const [tab] = await browser.tabs.query({
@@ -467,20 +381,40 @@ export function WorkspacePage() {
         lastFocusedWindow: true,
       });
 
-      if (!tab?.id) {
+      if (!tab?.id || !isSupportedCrmPageUrl(tab.url)) {
+        setLatestPageContext(null);
         setDetectionStatus('empty');
         setPageScanVersion((current) => current + 1);
+        lastDetectedTabKeyRef.current = tab?.id ? `${tab.id}:${tab.url ?? ''}` : null;
+        lastDetectionAtRef.current = Date.now();
         return;
       }
 
-      const hints = await readHintsFromTab(tab.id);
+      const tabKey = `${tab.id}:${tab.url ?? ''}`;
 
-      if (!hints) {
+      if (
+        !options.force &&
+        lastDetectedTabKeyRef.current === tabKey &&
+        Date.now() - lastDetectionAtRef.current < MIN_SCAN_REFRESH_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      lastDetectedTabKeyRef.current = tabKey;
+      lastDetectionAtRef.current = Date.now();
+
+      const payload = await readPageContextFromTab(tab.id);
+
+      if (!payload) {
+        setLatestPageContext(null);
         setDetectedHints(null);
         setDetectionStatus('empty');
         setPageScanVersion((current) => current + 1);
         return;
       }
+
+      setLatestPageContext(payload);
+      const hints = extractAutofillHints(payload);
 
       const usefulHints = {
         firstName: hints.firstName?.trim() ?? '',
@@ -495,10 +429,14 @@ export function WorkspacePage() {
 
       const hasUsefulData = AUTOFILL_KEYS.some((key) => Boolean(usefulHints[key]));
 
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         tabId: tab.id,
         url: tab.url,
         title: tab.title,
+        fieldCount: payload.fieldEntries.length,
+        imageCount: payload.images.length,
+        inventoryLinkCount: payload.inventoryLinks.length,
+        vin: payload.vin,
         hints: usefulHints,
       });
 
@@ -517,7 +455,7 @@ export function WorkspacePage() {
           lastAutofillRef.current,
         );
 
-        console.debug(REPPLE_DEBUG_PREFIX, {
+        debugLog(REPPLE_DEBUG_PREFIX, {
           action: 'merge',
           previousDraft: current,
           nextDraft,
@@ -533,32 +471,49 @@ export function WorkspacePage() {
       setDetectionStatus('applied');
       setPageScanVersion((current) => current + 1);
     } catch {
+      setLatestPageContext(null);
       setDetectedHints(null);
       setDetectionStatus('empty');
       setPageScanVersion((current) => current + 1);
+    } finally {
+      detectionInFlightRef.current = false;
+
+      if (pendingForcedDetectionRef.current) {
+        pendingForcedDetectionRef.current = false;
+        void detectFromActiveTab({ force: true });
+      }
     }
   }
 
-  async function resolveVehicleImageForActiveTab(vehicle: string) {
+  detectFromActiveTabRef.current = detectFromActiveTab;
+
+  async function resolveVehicleImageForActiveTab(
+    vehicle: string,
+    pageContext = latestPageContext,
+  ) {
     try {
-      const [tab] = await browser.tabs.query({
-        active: true,
-        lastFocusedWindow: true,
-      });
+      let mediaContext = pageContext;
 
-      if (!tab?.id) {
-        return null;
+      if (!mediaContext) {
+        const [tab] = await browser.tabs.query({
+          active: true,
+          lastFocusedWindow: true,
+        });
+
+        if (!tab?.id) {
+          return null;
+        }
+
+        mediaContext = await readPageContextFromTab(tab.id);
       }
-
-      const mediaContext = await readVehicleMediaFromTab(tab.id);
 
       if (!mediaContext) {
         return null;
       }
 
-      return resolveVehicleImageSelection(mediaContext, vehicle);
+      return resolveVehicleImageSelection(mediaContext as VehiclePageMediaContext, vehicle);
     } catch (error) {
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'vehicle-image-resolution-failed',
         vehicle,
         error,
@@ -568,10 +523,11 @@ export function WorkspacePage() {
   }
 
   useEffect(() => {
-    void detectFromActiveTab();
+    void detectFromActiveTabRef.current({ force: true });
+    void loadActivityRecordsRef.current();
 
     const handleActivated = () => {
-      void detectFromActiveTab();
+      void detectFromActiveTabRef.current({ force: true });
     };
 
     const handleUpdated = (
@@ -580,29 +536,34 @@ export function WorkspacePage() {
       tab: { active?: boolean },
     ) => {
       if (tab.active && changeInfo.status === 'complete') {
-        void detectFromActiveTab();
+        void detectFromActiveTabRef.current({ force: true });
       }
     };
 
-    const intervalId = window.setInterval(() => {
-      void detectFromActiveTab();
-    }, 2500);
+    const handleFocus = () => {
+      void detectFromActiveTabRef.current();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void detectFromActiveTabRef.current();
+      }
+    };
 
     browser.tabs.onActivated.addListener(handleActivated);
     browser.tabs.onUpdated.addListener(handleUpdated);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      window.clearInterval(intervalId);
       browser.tabs.onActivated.removeListener(handleActivated);
       browser.tabs.onUpdated.removeListener(handleUpdated);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [generated]);
+  }, []);
 
   useEffect(() => {
-    if (generated) {
-      return;
-    }
-
     const vehicle = draft.vehicle.trim();
 
     if (vehicle.length < 4) {
@@ -638,13 +599,20 @@ export function WorkspacePage() {
     setError('');
 
     try {
+      const vehicleImage =
+        resolvedVehicleImage ?? (await resolveVehicleImageForActiveTab(draft.vehicle.trim()));
       const record = await createAndSaveAppointmentRecord(draft, {
-        vehicleImage: resolvedVehicleImage,
+        vehicleImage,
+        vin: latestPageContext?.vin ?? null,
+        workspace,
       });
 
       setGenerated(record);
+      setResolvedVehicleImage(vehicleImage);
+      setActivityRecords((current) => [record, ...current.filter((item) => item.id !== record.id)]);
       setSmsDraft(record.smsText);
       setCopyLabel('Copy Message');
+      void loadActivityRecords();
     } catch (generationError) {
       setError(
         generationError instanceof Error
@@ -663,6 +631,10 @@ export function WorkspacePage() {
 
     await navigator.clipboard.writeText(smsDraft);
     setCopyLabel('Copied');
+    void recordWorkspaceAppointmentEvent(generated.id, 'message_copied', {
+      source: 'extension',
+      vehicle: generated.vehicle,
+    });
   }
 
   function buildEmbeddedLandingPageUrl(url: string) {
@@ -675,8 +647,8 @@ export function WorkspacePage() {
     }
   }
 
-  async function handleOpenLandingPage() {
-    if (!generated) {
+  async function handleOpenLandingPage(record = generated) {
+    if (!record) {
       return;
     }
 
@@ -690,7 +662,7 @@ export function WorkspacePage() {
         return;
       }
 
-      const previewUrl = buildEmbeddedLandingPageUrl(generated.landingPageUrl);
+      const previewUrl = buildEmbeddedLandingPageUrl(record.landingPageUrl);
 
       await browser.scripting.executeScript({
         target: { tabId: tab.id },
@@ -788,7 +760,7 @@ export function WorkspacePage() {
         },
       });
     } catch (previewError) {
-      console.debug(REPPLE_DEBUG_PREFIX, {
+      debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'open-page-preview-failed',
         error: previewError,
       });
@@ -802,66 +774,214 @@ export function WorkspacePage() {
     >
       <div className="mx-auto w-full max-w-[430px]">
         <SectionCard className="space-y-4 p-3.5 sm:p-4">
-          {!generated ? (
-            <div className="flex items-start justify-between gap-3">
-              <BrandMark />
+          <div className="flex items-start justify-between gap-3">
+            <BrandMark />
+            <div className="flex items-center gap-2">
               <Button
                 className="min-h-9 px-3 py-2 text-xs"
-                onClick={() => void detectFromActiveTab()}
+                onClick={() =>
+                  void (activeTab === 'activity' ? loadActivityRecords() : detectFromActiveTab())
+                }
                 type="button"
                 variant="ghost"
               >
                 Refresh
               </Button>
+              {onSignOut ? (
+                <Button
+                  className="min-h-9 px-3 py-2 text-xs"
+                  onClick={() => void onSignOut()}
+                  type="button"
+                  variant="ghost"
+                >
+                  Sign Out
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-[18px] bg-white/86 px-4 py-3 shadow-[0_12px_26px_rgba(15,23,42,0.05)]">
+            <p className="truncate text-[15px] font-semibold text-[var(--repple-ink)]">
+              {organization.name}
+            </p>
+            <p className="mt-1 truncate text-[12px] text-[var(--repple-muted)]">
+              {workspace.profile.full_name?.trim() || workspace.profile.email}
+            </p>
+          </div>
+
+          <div className="rounded-[14px] bg-[rgba(255,255,255,0.58)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                className={`rounded-[12px] px-3 py-2 text-sm font-medium transition ${
+                  activeTab === 'create'
+                    ? 'bg-white text-[var(--repple-ink)] shadow-[0_10px_24px_rgba(15,23,42,0.08)]'
+                    : 'text-[var(--repple-muted)]'
+                }`}
+                onClick={() => setActiveTab('create')}
+                type="button"
+              >
+                Create
+              </button>
+              <button
+                className={`rounded-[12px] px-3 py-2 text-sm font-medium transition ${
+                  activeTab === 'activity'
+                    ? 'bg-white text-[var(--repple-ink)] shadow-[0_10px_24px_rgba(15,23,42,0.08)]'
+                    : 'text-[var(--repple-muted)]'
+                }`}
+                onClick={() => setActiveTab('activity')}
+                type="button"
+              >
+                Activity
+              </button>
+            </div>
+          </div>
+
+          {activeTab === 'create' ? (
+            <div className="space-y-4">
+              {!hasActiveBilling ? (
+                <div className="rounded-[18px] border border-[rgba(245,158,11,0.16)] bg-[rgba(245,158,11,0.09)] px-4 py-3 text-sm leading-6 text-[#9a6700]">
+                  Billing is currently {formatOrganizationSubscriptionStatus(organization.subscription_status).toLowerCase()} for this dealership. An owner or admin needs to activate billing in the web app before reps can generate cards.
+                </div>
+              ) : null}
+
+              <form className="space-y-3.5" onSubmit={handleGenerate}>
+                <div className="space-y-3.5 rounded-[18px] bg-[rgba(255,255,255,0.52)] p-1">
+                  <FormField
+                    label="Customer First Name"
+                    placeholder="John"
+                    value={draft.firstName}
+                    onChange={(event) => updateField('firstName', event.target.value)}
+                  />
+                  <FormField
+                    label="Vehicle"
+                    placeholder="2024 Honda Accord"
+                    value={draft.vehicle}
+                    onChange={(event) => updateField('vehicle', event.target.value)}
+                  />
+                  <FormField
+                    label="Appointment Time"
+                    placeholder="tomorrow at 3 PM"
+                    value={draft.appointmentTime}
+                    onChange={(event) => updateField('appointmentTime', event.target.value)}
+                  />
+                  <FormField
+                    label="Salesperson Name"
+                    placeholder="Mike"
+                    value={draft.salespersonName}
+                    onChange={(event) => updateField('salespersonName', event.target.value)}
+                  />
+                  <FormField
+                    label="Dealership Name"
+                    placeholder="Honda of Example City"
+                    value={draft.dealershipName}
+                    onChange={(event) => updateField('dealershipName', event.target.value)}
+                  />
+                  <FormField
+                    label="Address"
+                    placeholder="1234 Main Street, Example City, ST 12345"
+                    value={draft.dealershipAddress}
+                    onChange={(event) => updateField('dealershipAddress', event.target.value)}
+                  />
+                </div>
+
+                <Button disabled={!canGenerate || isGenerating || !hasActiveBilling} fullWidth type="submit">
+                  {isGenerating ? 'Publishing Repple...' : 'Generate Repple'}
+                </Button>
+              </form>
+
+              <div className="space-y-3 rounded-[20px] bg-white/72 p-3 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+                <div className="space-y-1">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--repple-muted)]">
+                    Live Preview
+                  </p>
+                  <p className="text-sm leading-6 text-[var(--repple-muted)]">
+                    The card updates as you edit the CRM details above.
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto pb-1">
+                  <AppointmentCard
+                    embed
+                    initialRecord={previewRecord}
+                    showActionButtons={false}
+                    showCloseButton={false}
+                  />
+                </div>
+              </div>
             </div>
           ) : null}
 
-          {generated ? null : (
-            <form className="space-y-3.5" onSubmit={handleGenerate}>
-              <div className="space-y-3.5 rounded-[18px] bg-[rgba(255,255,255,0.52)] p-1">
-                <FormField
-                  label="Customer First Name"
-                  placeholder="John"
-                  value={draft.firstName}
-                  onChange={(event) => updateField('firstName', event.target.value)}
-                />
-                <FormField
-                  label="Vehicle"
-                  placeholder="2024 Honda Accord"
-                  value={draft.vehicle}
-                  onChange={(event) => updateField('vehicle', event.target.value)}
-                />
-                <FormField
-                  label="Appointment Time"
-                  placeholder="tomorrow at 3 PM"
-                  value={draft.appointmentTime}
-                  onChange={(event) => updateField('appointmentTime', event.target.value)}
-                />
-                <FormField
-                  label="Salesperson Name"
-                  placeholder="Mike"
-                  value={draft.salespersonName}
-                  onChange={(event) => updateField('salespersonName', event.target.value)}
-                />
-                <FormField
-                  label="Dealership Name"
-                  placeholder="Honda of Example City"
-                  value={draft.dealershipName}
-                  onChange={(event) => updateField('dealershipName', event.target.value)}
-                />
-                <FormField
-                  label="Address"
-                  placeholder="1234 Main Street, Example City, ST 12345"
-                  value={draft.dealershipAddress}
-                  onChange={(event) => updateField('dealershipAddress', event.target.value)}
-                />
-              </div>
+          {activeTab === 'activity' ? (
+            <div className="space-y-3">
+              {isActivityLoading ? (
+                <div className="rounded-[18px] bg-white/80 px-4 py-5 text-sm text-[var(--repple-muted)] shadow-[0_12px_26px_rgba(15,23,42,0.05)]">
+                  Refreshing recent cards...
+                </div>
+              ) : null}
 
-              <Button disabled={!canGenerate || isGenerating} fullWidth type="submit">
-                {isGenerating ? 'Publishing Repple...' : 'Generate Repple'}
-              </Button>
-            </form>
-          )}
+              {!isActivityLoading && activityRecords.length === 0 ? (
+                <div className="rounded-[18px] bg-white/82 px-4 py-5 text-sm text-[var(--repple-muted)] shadow-[0_12px_26px_rgba(15,23,42,0.05)]">
+                  Generated Repple cards will appear here.
+                </div>
+              ) : null}
+
+              {activityRecords.map((record) => (
+                <button
+                  className="w-full rounded-[18px] bg-white/92 px-4 py-4 text-left shadow-[0_14px_32px_rgba(15,23,42,0.06)] transition hover:bg-white"
+                  key={record.id}
+                  onClick={() => void handleOpenLandingPage(record)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[15px] font-semibold leading-5 text-[var(--repple-ink)]">
+                        {record.firstName}
+                      </p>
+                      <p className="mt-1 truncate text-[13px] leading-5 text-[var(--repple-muted)]">
+                        {record.vehicle}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-4 text-[var(--repple-muted)]">
+                        Generated {formatActivityTimestamp(record.createdAt)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[11px] font-medium leading-4 text-[var(--repple-accent-deep)]">
+                      View Card
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        record.viewedAt
+                          ? 'bg-[rgba(10,132,255,0.12)] text-[var(--repple-accent-deep)]'
+                          : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
+                      }`}
+                    >
+                      {record.viewedAt ? 'Viewed' : 'Not Viewed'}
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        record.confirmedAt
+                          ? 'bg-[rgba(16,185,129,0.12)] text-[#0f766e]'
+                          : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
+                      }`}
+                    >
+                      {record.confirmedAt ? 'Confirmed' : 'Not Confirmed'}
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        record.rescheduleRequestedAt
+                          ? 'bg-[rgba(245,158,11,0.14)] text-[#9a6700]'
+                          : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
+                      }`}
+                    >
+                      {record.rescheduleRequestedAt ? 'Reschedule Requested' : 'No Reschedule'}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {error ? (
             <div className="rounded-2xl border border-[rgba(239,68,68,0.14)] bg-[rgba(239,68,68,0.06)] px-4 py-3 text-sm text-[#b42318]">
@@ -869,32 +989,25 @@ export function WorkspacePage() {
             </div>
           ) : null}
 
-          {generated ? (
+          {activeTab === 'create' && generated ? (
             <div className="space-y-5" ref={resultRef}>
               <div className="space-y-1">
                 <p className="text-[1.55rem] font-semibold leading-none tracking-[-0.04em] text-[var(--repple-ink)]">
                   {generated.firstName}'s card is ready
                 </p>
+                <p className="text-sm leading-6 text-[var(--repple-muted)]">
+                  Copy the message below, then paste it into your CRM texting tool.
+                </p>
               </div>
 
-              <PersonalizedVideoCard
-                compact
-                onPlay={() =>
-                  window.open(generated.videoUrl, '_blank', 'noopener,noreferrer')
-                }
-                status={generated.videoStatus}
-                subtitle={
-                  generated.videoStatus === 'ready'
-                    ? `${generated.firstName} · ${generated.appointmentTime}`
-                    : `${generated.vehicle} · ${generated.appointmentTime}`
-                }
-                thumbnailUrl={generated.videoThumbnailUrl}
-                title={
-                  generated.videoStatus === 'ready'
-                    ? generated.vehicle
-                    : `Reserved for ${generated.firstName}`
-                }
-              />
+              <div className="overflow-x-auto pb-1">
+                <AppointmentCard
+                  embed
+                  initialRecord={generated}
+                  showActionButtons={false}
+                  showCloseButton={false}
+                />
+              </div>
 
               <div className="space-y-2">
                 <textarea
@@ -911,7 +1024,7 @@ export function WorkspacePage() {
                 <Button onClick={handleCopySms} type="button" variant="secondary">
                   {copyLabel}
                 </Button>
-                <Button onClick={handleOpenLandingPage} type="button">
+                <Button onClick={() => void handleOpenLandingPage(generated)} type="button">
                   View Card
                 </Button>
               </div>

@@ -37,14 +37,19 @@ function requireEnv(name: string, fallbackNames: string[] = []) {
 }
 
 export function getSiteUrl() {
-  const siteUrl = requireEnv('NEXT_PUBLIC_SITE_URL') || 'https://repple.ai';
+  const siteUrl =
+    requireEnv('NEXT_PUBLIC_SITE_URL', ['WXT_PUBLIC_APP_URL', 'WXT_SITE_URL']) ||
+    'https://repple.ai';
 
   return siteUrl.replace(/\/+$/, '');
 }
 
 export function getSupabasePublicEnv() {
   return {
-    supabaseUrl: requireEnv('SUPABASE_URL', ['NEXT_PUBLIC_SUPABASE_URL']),
-    supabaseAnonKey: requireEnv('SUPABASE_ANON_KEY', ['NEXT_PUBLIC_SUPABASE_ANON_KEY']),
+    supabaseUrl: requireEnv('SUPABASE_URL', ['NEXT_PUBLIC_SUPABASE_URL', 'WXT_SUPABASE_URL']),
+    supabaseAnonKey: requireEnv('SUPABASE_ANON_KEY', [
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+      'WXT_SUPABASE_ANON_KEY',
+    ]),
   };
 }
