@@ -1,6 +1,12 @@
 import { browser } from 'wxt/browser';
 
 import type { VehicleImageConfidence, VehicleImageSelection } from '../shared/repple-contract';
+import type {
+  PageExtractionPayload,
+  PageImageCandidate,
+  PageLinkCandidate,
+} from './page-context';
+import { debugLog } from './debug';
 import { parseVehicleDescriptor } from '../shared/vehicle-images';
 import { appendVinToVehicleImageResolveUrl, buildVehicleImageResolveUrl } from './repple';
 
@@ -8,41 +14,46 @@ const VEHICLE_IMAGE_DEBUG_PREFIX = '[Repple][vehicle-image]';
 const VEHICLE_IMAGE_CACHE_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_INVENTORY_LINKS = 3;
 
-type VehicleImageCandidate = {
-  url: string;
-  width: number;
-  height: number;
-  alt: string;
-  title: string;
-  className: string;
-  nearbyText: string;
-  source:
-    | 'img'
-    | 'background'
-    | 'gallery'
-    | 'inventory-card'
-    | 'meta'
-    | 'json-ld'
-    | 'inventory-page';
+type VehicleImageCandidate = PageImageCandidate;
+type VehicleLinkCandidate = PageLinkCandidate;
+type ScoredVehicleCandidate = {
+  candidate: VehicleImageCandidate;
+  score: number;
+  confidence: VehicleImageConfidence;
+};
+type RankedVehicleImageSelection = {
+  selection: VehicleImageSelection;
+  score: number;
 };
 
-type VehicleLinkCandidate = {
-  url: string;
-  text: string;
-};
-
-export type VehiclePageMediaContext = {
-  pageUrl: string;
-  pageTitle: string;
-  visibleText: string;
-  vin: string | null;
-  images: VehicleImageCandidate[];
-  inventoryLinks: VehicleLinkCandidate[];
-};
+export type VehiclePageMediaContext = Pick<
+  PageExtractionPayload,
+  'pageUrl' | 'title' | 'visibleText' | 'vin' | 'images' | 'inventoryLinks'
+>;
 
 type CachedVehicleImageSelection = VehicleImageSelection & {
   cachedAt: number;
 };
+
+function getProviderPriority(provider: VehicleImageSelection['provider']) {
+  if (provider === 'crm-page') {
+    return 5;
+  }
+
+  if (provider === 'inventory-page') {
+    return 4;
+  }
+
+  if (provider === 'vin-lookup') {
+    return 3;
+  }
+
+  if (provider === 'external-api') {
+    return 2;
+  }
+
+  return 1;
+}
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, ' ').trim();
@@ -58,11 +69,6 @@ function normalizeUrl(url: string, baseUrl: string) {
   } catch {
     return '';
   }
-}
-
-function extractVin(value: string) {
-  const match = value.toUpperCase().match(/\b[A-HJ-NPR-Z0-9]{17}\b/);
-  return match?.[0] ?? null;
 }
 
 function inferConfidence(score: number): VehicleImageConfidence {
@@ -141,8 +147,24 @@ function scoreCandidate(
     score += Math.min(28, Math.round(Math.min(candidate.width, candidate.height) / 32));
   }
 
+  const area = candidate.width * candidate.height;
+
+  if (area >= 160_000) {
+    score += 18;
+  } else if (area >= 80_000) {
+    score += 10;
+  }
+
   if (/\b(svg|sprite|favicon)\b/.test(candidate.url)) {
     score -= 220;
+  }
+
+  if (
+    /\b(no[-_ ]image|no[-_ ]photo|placeholder|stock[-_ ]photo|coming[-_ ]soon|default[-_ ]image)\b/.test(
+      haystack,
+    )
+  ) {
+    score -= 280;
   }
 
   if (
@@ -159,6 +181,18 @@ function scoreCandidate(
 
   if (candidate.source === 'gallery' || candidate.source === 'inventory-card') {
     score += 12;
+  }
+
+  if (/\b(hero|primary|featured|main|carousel|gallery|vehicle-photo)\b/.test(haystack)) {
+    score += 18;
+  }
+
+  if (/\b(vehicle|vehicle details|inventory match|year make model|trim|body style|vin)\b/.test(haystack)) {
+    score += 22;
+  }
+
+  if (/\b(customer|sales advisor|appointment owner|profile|contact)\b/.test(haystack)) {
+    score -= 36;
   }
 
   if (descriptor.make && haystack.includes(descriptor.make.toLowerCase())) {
@@ -235,7 +269,7 @@ function pickBestCandidate(
   candidates: VehicleImageCandidate[],
   vehicle: string,
   sourcePageUrl: string,
-) {
+): ScoredVehicleCandidate | null {
   const scored = candidates
     .map((candidate) => ({
       candidate,
@@ -293,6 +327,64 @@ function parseInlineBackgroundImage(styleValue: string | null | undefined, baseU
   }
 
   return normalizeUrl(match[2], baseUrl);
+}
+
+function parseSrcsetUrl(srcsetValue: string | null | undefined, baseUrl: string) {
+  const candidates = (srcsetValue ?? '')
+    .split(',')
+    .map((entry) => normalizeWhitespace(entry))
+    .filter(Boolean)
+    .map((entry) => {
+      const [rawUrl, rawDescriptor] = entry.split(/\s+/, 2);
+      const descriptor = rawDescriptor?.trim() ?? '';
+      const widthMatch = descriptor.match(/^(\d+)w$/i);
+      const densityMatch = descriptor.match(/^(\d+(?:\.\d+)?)x$/i);
+
+      return {
+        url: normalizeUrl(rawUrl ?? '', baseUrl),
+        score: widthMatch
+          ? Number(widthMatch[1])
+          : densityMatch
+            ? Number(densityMatch[1]) * 1000
+            : 0,
+      };
+    })
+    .filter((entry) => Boolean(entry.url));
+
+  if (candidates.length === 0) {
+    return '';
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  return candidates[0]?.url ?? '';
+}
+
+function getInventoryImageUrl(image: Element, pageUrl: string) {
+  const directAttributeNames = [
+    'src',
+    'data-src',
+    'data-lazy-src',
+    'data-original',
+    'data-image',
+    'data-zoom-image',
+    'data-large-image',
+    'data-full-image',
+    'data-fullres',
+  ];
+
+  for (const attributeName of directAttributeNames) {
+    const url = normalizeUrl(image.getAttribute(attributeName) || '', pageUrl);
+
+    if (url) {
+      return url;
+    }
+  }
+
+  return (
+    parseSrcsetUrl(image.getAttribute('srcset'), pageUrl) ||
+    parseSrcsetUrl(image.getAttribute('data-srcset'), pageUrl) ||
+    parseSrcsetUrl(image.getAttribute('data-lazy-srcset'), pageUrl)
+  );
 }
 
 function readJsonLdImage(doc: Document, baseUrl: string) {
@@ -368,12 +460,7 @@ function parseInventoryPageCandidates(html: string, pageUrl: string) {
   }
 
   for (const image of Array.from(doc.querySelectorAll('img')).slice(0, 40)) {
-    const src =
-      image.getAttribute('src') ||
-      image.getAttribute('data-src') ||
-      image.getAttribute('data-lazy-src') ||
-      '';
-    const url = normalizeUrl(src, pageUrl);
+    const url = getInventoryImageUrl(image, pageUrl);
 
     if (!url) {
       continue;
@@ -439,11 +526,27 @@ async function saveVehicleImageCache(cacheKey: string, selection: VehicleImageSe
   });
 }
 
+async function saveVehicleImageCacheIfPreferred(
+  cacheKey: string,
+  selection: VehicleImageSelection,
+) {
+  const cached = await readVehicleImageCache(cacheKey);
+
+  if (
+    cached &&
+    getProviderPriority(cached.provider) > getProviderPriority(selection.provider)
+  ) {
+    return;
+  }
+
+  await saveVehicleImageCache(cacheKey, selection);
+}
+
 async function fetchInventoryImageSelection(
   inventoryLinks: VehicleLinkCandidate[],
   vehicle: string,
   pageUrl: string,
-) {
+): Promise<RankedVehicleImageSelection | null> {
   const bestLinks = [...inventoryLinks]
     .map((link) => ({
       link,
@@ -475,13 +578,16 @@ async function fetchInventoryImageSelection(
       }
 
       return {
-        url: candidate.candidate.url,
-        provider: 'inventory-page' as const,
-        sourcePageUrl: entry.link.url,
-        confidence: candidate.confidence,
+        selection: {
+          url: candidate.candidate.url,
+          provider: 'inventory-page' as const,
+          sourcePageUrl: entry.link.url,
+          confidence: candidate.confidence,
+        },
+        score: candidate.score,
       };
     } catch (error) {
-      console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
+      debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
         action: 'inventory-fetch-failed',
         url: entry.link.url,
         error,
@@ -535,7 +641,7 @@ async function fetchExternalVehicleImageSelection(
         provider === 'crm-page' || provider === 'inventory-page' ? 'high' : 'medium',
     };
   } catch (error) {
-    console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
       action: 'external-vehicle-image-failed',
       error,
     });
@@ -563,13 +669,66 @@ async function persistResolvedVehicleImageSelection(
       }),
     });
   } catch (error) {
-    console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
       action: 'persist-selection-failed',
       vehicle,
       selection,
       error,
     });
   }
+}
+
+function createCrmPageSelection(
+  candidate: ScoredVehicleCandidate,
+  sourcePageUrl: string,
+): RankedVehicleImageSelection {
+  return {
+    selection: {
+      url: candidate.candidate.url,
+      provider: 'crm-page',
+      sourcePageUrl,
+      confidence: candidate.confidence,
+    },
+    score: candidate.score,
+  };
+}
+
+function choosePreferredImageSelection(input: {
+  directCandidate: ScoredVehicleCandidate | null;
+  inventorySelection: RankedVehicleImageSelection | null;
+  sourcePageUrl: string;
+}) {
+  const { directCandidate, inventorySelection, sourcePageUrl } = input;
+
+  if (!directCandidate) {
+    return inventorySelection;
+  }
+
+  const crmSelection = createCrmPageSelection(directCandidate, sourcePageUrl);
+
+  if (!inventorySelection) {
+    return crmSelection;
+  }
+
+  if (directCandidate.score >= 108) {
+    return crmSelection;
+  }
+
+  if (
+    directCandidate.confidence === 'high' &&
+    directCandidate.score >= inventorySelection.score - 6
+  ) {
+    return crmSelection;
+  }
+
+  if (
+    directCandidate.confidence === 'medium' &&
+    inventorySelection.score <= directCandidate.score + 12
+  ) {
+    return crmSelection;
+  }
+
+  return inventorySelection;
 }
 
 export async function resolveVehicleImageSelection(
@@ -585,8 +744,10 @@ export async function resolveVehicleImageSelection(
   const cacheKey = buildVehicleImageCacheKey(normalizedVehicle, context.pageUrl, context.vin);
   const cached = await readVehicleImageCache(cacheKey);
 
-  if (cached) {
-    console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
+  const directCandidate = pickBestCandidate(context.images, normalizedVehicle, context.pageUrl);
+
+  if (cached && getProviderPriority(cached.provider) >= getProviderPriority('inventory-page')) {
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
       action: 'cache-hit',
       cacheKey,
       selection: cached,
@@ -595,49 +756,54 @@ export async function resolveVehicleImageSelection(
     return cached as VehicleImageSelection;
   }
 
-  const directCandidate = pickBestCandidate(context.images, normalizedVehicle, context.pageUrl);
+  const inventorySelection =
+    directCandidate?.score && directCandidate.score >= 108
+      ? null
+      : await fetchInventoryImageSelection(
+          context.inventoryLinks,
+          normalizedVehicle,
+          context.pageUrl,
+        );
+  const preferredRealSelection = choosePreferredImageSelection({
+    directCandidate,
+    inventorySelection,
+    sourcePageUrl: context.pageUrl,
+  });
 
-  if (directCandidate) {
-    const selection: VehicleImageSelection = {
-      url: directCandidate.candidate.url,
-      provider: 'crm-page',
-      sourcePageUrl: context.pageUrl,
-      confidence: directCandidate.confidence,
-    };
-
-    await saveVehicleImageCache(cacheKey, selection);
-    void persistResolvedVehicleImageSelection(normalizedVehicle, selection, context.vin);
-    console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
-      action: 'direct-page-match',
+  if (preferredRealSelection) {
+    await saveVehicleImageCacheIfPreferred(cacheKey, preferredRealSelection.selection);
+    void persistResolvedVehicleImageSelection(
+      normalizedVehicle,
+      preferredRealSelection.selection,
+      context.vin,
+    );
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
+      action:
+        preferredRealSelection.selection.provider === 'crm-page'
+          ? 'direct-page-match'
+          : 'inventory-page-match',
       cacheKey,
-      selection,
-      score: directCandidate.score,
+      selection: preferredRealSelection.selection,
+      score: preferredRealSelection.score,
     });
-    return selection;
+    return preferredRealSelection.selection;
   }
 
-  const inventorySelection = await fetchInventoryImageSelection(
-    context.inventoryLinks,
-    normalizedVehicle,
-    context.pageUrl,
-  );
-
-  if (inventorySelection) {
-    await saveVehicleImageCache(cacheKey, inventorySelection);
-    void persistResolvedVehicleImageSelection(normalizedVehicle, inventorySelection, context.vin);
-    console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
-      action: 'inventory-page-match',
+  if (cached && getProviderPriority(cached.provider) >= getProviderPriority('vin-lookup')) {
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
+      action: 'cache-hit',
       cacheKey,
-      selection: inventorySelection,
+      selection: cached,
     });
-    return inventorySelection;
+
+    return cached as VehicleImageSelection;
   }
 
   const externalSelection = await fetchExternalVehicleImageSelection(normalizedVehicle, context.vin);
 
   if (externalSelection) {
-    await saveVehicleImageCache(cacheKey, externalSelection);
-    console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
+    await saveVehicleImageCacheIfPreferred(cacheKey, externalSelection);
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
       action: 'external-match',
       cacheKey,
       selection: externalSelection,
@@ -645,7 +811,17 @@ export async function resolveVehicleImageSelection(
     return externalSelection;
   }
 
-  console.debug(VEHICLE_IMAGE_DEBUG_PREFIX, {
+  if (cached) {
+    debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
+      action: 'cache-hit',
+      cacheKey,
+      selection: cached,
+    });
+
+    return cached as VehicleImageSelection;
+  }
+
+  debugLog(VEHICLE_IMAGE_DEBUG_PREFIX, {
     action: 'fallback-only',
     cacheKey,
     vehicle: normalizedVehicle,
@@ -653,146 +829,4 @@ export async function resolveVehicleImageSelection(
   });
 
   return null;
-}
-
-export function extractVehiclePageMediaContextFromDocument(): VehiclePageMediaContext {
-  const pageUrl = window.location.href;
-  const pageTitle = document.title;
-  const visibleText = document.body?.innerText?.trim() ?? '';
-  const vin = extractVin(visibleText);
-  const images: VehicleImageCandidate[] = [];
-  const inventoryLinks: VehicleLinkCandidate[] = [];
-  const seenImageUrls = new Set<string>();
-  const seenLinks = new Set<string>();
-
-  function isVisibleElement(element: Element) {
-    if (!(element instanceof HTMLElement)) {
-      return false;
-    }
-
-    const style = window.getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-
-    return (
-      style.display !== 'none' &&
-      style.visibility !== 'hidden' &&
-      rect.width > 0 &&
-      rect.height > 0
-    );
-  }
-
-  function readNearbyText(element: Element) {
-    return normalizeWhitespace(
-      element.closest('article, section, [role="row"], li, .card, .vehicle, .inventory, .gallery, div')
-        ?.textContent || '',
-    ).slice(0, 320);
-  }
-
-  function pushImage(candidate: VehicleImageCandidate) {
-    if (!candidate.url || seenImageUrls.has(candidate.url)) {
-      return;
-    }
-
-    seenImageUrls.add(candidate.url);
-    images.push(candidate);
-  }
-
-  const metaImage = document
-    .querySelector('meta[property="og:image"], meta[name="twitter:image"]')
-    ?.getAttribute('content');
-
-  if (metaImage) {
-    pushImage({
-      url: normalizeUrl(metaImage, pageUrl),
-      width: 1200,
-      height: 675,
-      alt: '',
-      title: '',
-      className: '',
-      nearbyText: pageTitle,
-      source: 'meta',
-    });
-  }
-
-  for (const image of Array.from(document.querySelectorAll('img')).slice(0, 80)) {
-    if (!isVisibleElement(image)) {
-      continue;
-    }
-
-    const rect = image.getBoundingClientRect();
-    const src =
-      image.currentSrc ||
-      image.getAttribute('src') ||
-      image.getAttribute('data-src') ||
-      image.getAttribute('data-lazy-src') ||
-      '';
-
-    pushImage({
-      url: normalizeUrl(src, pageUrl),
-      width: Math.round(rect.width || image.naturalWidth || 0),
-      height: Math.round(rect.height || image.naturalHeight || 0),
-      alt: normalizeWhitespace(image.getAttribute('alt') || ''),
-      title: normalizeWhitespace(image.getAttribute('title') || ''),
-      className: normalizeWhitespace(image.getAttribute('class') || ''),
-      nearbyText: readNearbyText(image),
-      source: image.closest('[class*="gallery"], [class*="inventory"], [class*="vehicle"]')
-        ? 'gallery'
-        : 'img',
-    });
-  }
-
-  for (const element of Array.from(document.querySelectorAll<HTMLElement>('[style*="background-image"]')).slice(0, 40)) {
-    if (!isVisibleElement(element)) {
-      continue;
-    }
-
-    const rect = element.getBoundingClientRect();
-    const backgroundUrl = parseInlineBackgroundImage(element.style.backgroundImage, pageUrl);
-
-    pushImage({
-      url: backgroundUrl,
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-      alt: '',
-      title: normalizeWhitespace(element.getAttribute('title') || ''),
-      className: normalizeWhitespace(element.getAttribute('class') || ''),
-      nearbyText: readNearbyText(element),
-      source: 'background',
-    });
-  }
-
-  for (const anchor of Array.from(document.querySelectorAll('a[href]')).slice(0, 120)) {
-    if (!isVisibleElement(anchor)) {
-      continue;
-    }
-
-    const href = normalizeUrl(anchor.getAttribute('href') || '', pageUrl);
-    const text = normalizeWhitespace(anchor.textContent || '').slice(0, 180);
-    const haystack = `${text} ${href}`.toLowerCase();
-
-    if (
-      !href ||
-      seenLinks.has(href) ||
-      !/\b(vehicle|inventory|details|vdp|stock|new|used|ford|honda|toyota|chevrolet|gmc|ram|accord|civic|f-?150|pilot|camry|silverado)\b/.test(
-        haystack,
-      )
-    ) {
-      continue;
-    }
-
-    seenLinks.add(href);
-    inventoryLinks.push({
-      url: href,
-      text,
-    });
-  }
-
-  return {
-    pageUrl,
-    pageTitle,
-    visibleText,
-    vin,
-    images,
-    inventoryLinks,
-  };
 }
