@@ -8,6 +8,37 @@ const MUTED_TEXT = '#6F7B93';
 const SERIF_FAMILY =
   '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Times New Roman", serif';
 
+function resolveAccentColor(value: string | null) {
+  const normalized = value?.trim() ?? '';
+
+  if (/^#(?:[0-9a-fA-F]{3}){1,2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  return PRIMARY_BLUE;
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '');
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((character) => `${character}${character}`)
+          .join('')
+      : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
+    return `rgba(30, 94, 255, ${alpha})`;
+  }
+
+  const red = Number.parseInt(expanded.slice(0, 2), 16);
+  const green = Number.parseInt(expanded.slice(2, 4), 16);
+  const blue = Number.parseInt(expanded.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 export const previewImageSize = {
   width: 1200,
   height: 630,
@@ -15,26 +46,58 @@ export const previewImageSize = {
 
 export const previewImageContentType = 'image/png';
 
-function DealershipGlyph() {
+function DealershipGlyph({
+  accentColor,
+  dealershipName,
+  logoUrl,
+}: {
+  accentColor: string;
+  dealershipName: string;
+  logoUrl: string | null;
+}) {
+  if (logoUrl) {
+    return (
+      <div
+        style={{
+          width: 68,
+          height: 68,
+          borderRadius: 22,
+          border: `1px solid ${hexToRgba(accentColor, 0.14)}`,
+          background: '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+        }}
+      >
+        <img
+          alt={dealershipName}
+          src={logoUrl}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         width: 68,
         height: 68,
         borderRadius: 22,
-        border: '1px solid rgba(30, 94, 255, 0.14)',
+        border: `1px solid ${hexToRgba(accentColor, 0.14)}`,
         background: '#ffffff',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: PRIMARY_BLUE,
+        color: accentColor,
       }}
     >
       <svg aria-hidden="true" fill="none" height="40" viewBox="0 0 28 28" width="40">
         <rect
           height="22"
           rx="7"
-          stroke={PRIMARY_BLUE}
+          stroke={accentColor}
           strokeWidth="2.2"
           width="22"
           x="3"
@@ -42,7 +105,7 @@ function DealershipGlyph() {
         />
         <path
           d="M9 6.5v15M19 6.5v15M9 14c1.6 1.9 3.1 2.8 5 2.8 1.9 0 3.4-.9 5-2.8"
-          stroke={PRIMARY_BLUE}
+          stroke={accentColor}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth="2.2"
@@ -53,6 +116,9 @@ function DealershipGlyph() {
 }
 
 export function renderAppointmentPreviewImage(record: AppointmentRecord | null) {
+  const previewImageUrl = record?.vehicleImageUrl || null;
+  const accentColor = resolveAccentColor(record?.dealershipBrandColor ?? null);
+
   return new ImageResponse(
     (
       <div
@@ -76,8 +142,19 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
             borderRadius: 34,
             padding: 28,
             boxShadow: '0 18px 44px rgba(15, 23, 42, 0.08)',
+            position: 'relative',
           }}
         >
+          <div
+            style={{
+              position: 'absolute',
+              inset: '0 0 auto 0',
+              height: 8,
+              borderTopLeftRadius: 34,
+              borderTopRightRadius: 34,
+              background: `linear-gradient(90deg, ${accentColor} 0%, ${hexToRgba(accentColor, 0.52)} 100%)`,
+            }}
+          />
           <div
             style={{
               display: 'flex',
@@ -87,7 +164,11 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
               gap: 8,
             }}
           >
-            <DealershipGlyph />
+            <DealershipGlyph
+              accentColor={accentColor}
+              dealershipName={record?.dealershipName || 'Repple'}
+              logoUrl={record?.dealershipLogoUrl ?? null}
+            />
             <div
               style={{
                 display: 'flex',
@@ -128,7 +209,7 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
                     fontSize: 14,
                   }}
                 >
-                  Real People. Real Service.
+                  Personalized appointment details
                 </div>
                 <div
                   style={{
@@ -168,9 +249,9 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
                 letterSpacing: '-0.04em',
               }}
             >
-              <span style={{ color: PRIMARY_BLUE }}>{record?.firstName || 'Customer'},</span>
-              <span>your vehicle is reserved.</span>
-            </div>
+                <span style={{ color: accentColor }}>{record?.firstName || 'Customer'},</span>
+                <span>your appointment card is ready.</span>
+              </div>
             <div
               style={{
                 color: MUTED_TEXT,
@@ -193,10 +274,10 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
               background: '#EAF0F9',
             }}
           >
-            {record ? (
+            {previewImageUrl ? (
               <img
                 alt=""
-                src={record.videoThumbnailUrl}
+                src={previewImageUrl}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : null}
@@ -212,28 +293,22 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
             <div
               style={{
                 position: 'absolute',
-                inset: 0,
+                top: 18,
+                left: 18,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.9)',
+                padding: '10px 14px',
+                color: accentColor,
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
               }}
             >
-              <div
-                style={{
-                  width: 112,
-                  height: 112,
-                  borderRadius: 999,
-                  background: 'rgba(255,255,255,0.96)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 18px 36px rgba(15, 23, 42, 0.14)',
-                }}
-              >
-                <svg aria-hidden="true" fill={PRIMARY_BLUE} height="36" viewBox="0 0 20 20" width="36">
-                  <path d="M7 4.5v11l8-5.5-8-5.5Z" />
-                </svg>
-              </div>
+              Personalized experience
             </div>
             <div
               style={{
@@ -248,11 +323,11 @@ export function renderAppointmentPreviewImage(record: AppointmentRecord | null) 
                 padding: '10px 14px',
                 backdropFilter: 'blur(14px)',
                 color: '#ffffff',
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: 500,
               }}
             >
-              A personal message for you
+              Premium arrival details
             </div>
           </div>
         </div>

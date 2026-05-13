@@ -1,12 +1,10 @@
-export const DEALERSHIP_NAME = 'ABC Motors';
-export const DEALERSHIP_ADDRESS = '1284 West Loop Drive, Houston, TX 77027';
+import type { AppointmentStatus } from './supabase-schema';
+
 export const STANDARD_SHORT_ID_LENGTH = 6;
 export const STANDARD_SHORT_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const STANDARD_SHORT_ID_PATTERN = /^[A-Z0-9]{6}$/;
 const LEGACY_SHORT_ID_PATTERN = /^rep_[a-z0-9]+$/i;
-
-export type VideoGenerationStatus = 'processing' | 'ready';
 export type VehicleImageProvider =
   | 'crm-page'
   | 'inventory-page'
@@ -24,11 +22,18 @@ export type VehicleImageSelection = {
 
 export type AppointmentRecord = {
   id: string;
+  appointmentId: string | null;
+  organizationId: string | null;
+  createdByProfileId: string | null;
   firstName: string;
   vehicle: string;
   appointmentTime: string;
   salespersonName: string;
+  salespersonTitle: string | null;
+  salespersonAvatarUrl: string | null;
   dealershipName: string;
+  dealershipLogoUrl: string | null;
+  dealershipBrandColor: string | null;
   dealershipAddress: string;
   landingPageUrl: string;
   previewImageUrl: string;
@@ -37,13 +42,11 @@ export type AppointmentRecord = {
   vehicleImageSourcePageUrl: string | null;
   vehicleImageConfidence: VehicleImageConfidence | null;
   smsText: string;
-  videoProvider: 'mock';
-  videoStatus: VideoGenerationStatus;
-  videoJobId: string;
-  videoUrl: string;
-  videoThumbnailUrl: string;
-  videoRequestedAt: string;
-  videoReadyAt: string;
+  viewedAt: string | null;
+  confirmedAt: string | null;
+  rescheduleRequestedAt: string | null;
+  rescheduleNote: string | null;
+  status: AppointmentStatus | null;
   createdAt: string;
 };
 
@@ -101,6 +104,9 @@ export type SupabaseAppointmentRow = {
   vehicle_image_provider?: string | null;
   vehicle_image_source_page_url?: string | null;
   vehicle_image_confidence?: string | null;
+  viewed_at?: string | null;
+  confirmed_at?: string | null;
+  reschedule_requested_at?: string | null;
   created_at: string | null;
 };
 
@@ -117,6 +123,9 @@ export type NormalizedAppointmentRow = {
   vehicle_image_provider: VehicleImageProvider | null;
   vehicle_image_source_page_url: string | null;
   vehicle_image_confidence: VehicleImageConfidence | null;
+  viewed_at: string | null;
+  confirmed_at: string | null;
+  reschedule_requested_at: string | null;
   created_at: string;
 };
 
@@ -188,12 +197,24 @@ function buildSmsLead(record: Pick<
   'id' | 'vehicle' | 'appointmentTime' | 'salespersonName'
 >) {
   const variants = [
-    `${record.salespersonName} recorded a quick video for you before your visit ${record.appointmentTime}.`,
+    `${record.salespersonName} prepared your personalized appointment card for ${record.appointmentTime}.`,
     `Your ${record.vehicle} is reserved and ready for ${record.appointmentTime}.`,
     `Your personalized arrival experience is ready for ${record.appointmentTime}.`,
   ];
 
   return variants[hashString(normalizeAppointmentId(record.id)) % variants.length];
+}
+
+function renderSmsTemplate(
+  template: string,
+  values: Record<string, string>,
+) {
+  const rendered = template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, token: string) => {
+    const value = values[token];
+    return typeof value === 'string' ? value : '';
+  });
+
+  return rendered.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function buildSmsText(record: Pick<
@@ -203,8 +224,29 @@ export function buildSmsText(record: Pick<
   | 'salespersonName'
   | 'appointmentTime'
   | 'vehicle'
+  | 'dealershipName'
+  | 'dealershipAddress'
   | 'landingPageUrl'
->) {
+>, template?: string | null) {
+  const trimmedTemplate = template?.trim();
+
+  if (trimmedTemplate) {
+    const renderedTemplate = renderSmsTemplate(trimmedTemplate, {
+      firstName: record.firstName,
+      customerName: record.firstName,
+      salespersonName: record.salespersonName,
+      appointmentTime: record.appointmentTime,
+      vehicle: record.vehicle,
+      dealershipName: record.dealershipName,
+      dealershipAddress: record.dealershipAddress,
+      landingPageUrl: record.landingPageUrl,
+    });
+
+    if (renderedTemplate) {
+      return renderedTemplate;
+    }
+  }
+
   return `Hey ${record.firstName}, ${buildSmsLead(record)} ${record.landingPageUrl}`;
 }
 
@@ -294,6 +336,9 @@ export function normalizeSupabaseRow(row: SupabaseAppointmentRow | null | undefi
     vehicle_image_source_page_url: row.vehicle_image_source_page_url ?? null,
     vehicle_image_confidence:
       (normalizedVehicleImageConfidence as VehicleImageConfidence | null) ?? null,
+    viewed_at: row.viewed_at ?? null,
+    confirmed_at: row.confirmed_at ?? null,
+    reschedule_requested_at: row.reschedule_requested_at ?? null,
     created_at: row.created_at,
   };
 }

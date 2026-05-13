@@ -22,7 +22,7 @@ export async function GET(
     record
       ? {
           ...record,
-          videoThumbnailUrl:
+          vehicleImageUrl:
             record.vehicleImageUrl ??
             resolvedImage?.imageUrl ??
             buildFallbackVehicleImageDataUrl(record.vehicle),

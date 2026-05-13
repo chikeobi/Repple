@@ -16,7 +16,6 @@ import { recordWorkspaceAppointmentEvent } from '../../utils/analytics';
 import { debugLog } from '../../utils/debug';
 import {
   createAndSaveAppointmentRecord,
-  getAppointmentRecord,
   listRecentAppointmentRecords,
 } from '../../utils/appointments';
 import {
@@ -236,26 +235,6 @@ export function WorkspacePage({
 
     setSmsDraft(generated.smsText);
   }, [generated?.id]);
-
-  useEffect(() => {
-    if (!generated || generated.videoStatus === 'ready') {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      void getAppointmentRecord(generated.id, generated.landingPageUrl, workspace)
-        .then((record) => {
-          if (record) {
-            setGenerated(record);
-          }
-        })
-        .catch(() => {});
-    }, 1200);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [generated]);
 
   function updateField(key: DraftKey, value: string) {
     setDraft((current) => ({ ...current, [key]: value }));

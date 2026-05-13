@@ -221,7 +221,7 @@ export function buildFallbackVehicleImageSvg(vehicle: string) {
       <circle cx="851" cy="470" r="60" fill="#0b1220"/>
       <circle cx="851" cy="470" r="27" fill="#aeb8c7"/>
       <rect x="54" y="548" width="298" height="70" rx="16" fill="rgba(17,24,39,0.68)"/>
-      <text x="84" y="591" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="22">A personal message for you</text>
+      <text x="84" y="591" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="22">Premium arrival details</text>
       <rect x="855" y="52" width="278" height="46" rx="23" fill="rgba(255,255,255,0.88)"/>
       <text x="888" y="81" fill="#576277" font-family="Arial, Helvetica, sans-serif" font-size="18">${safeVehicle}</text>
     </svg>

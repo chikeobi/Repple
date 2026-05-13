@@ -6,5 +6,4 @@ export type {
   AppointmentRecord,
   AutofillHints,
   SmsDeliveryPayload,
-  VideoGenerationStatus,
 } from '../shared/repple-contract';
