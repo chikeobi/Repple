@@ -121,6 +121,8 @@ create table if not exists public.organization_settings (
   default_sms_template text,
   card_theme text,
   compliance_footer text,
+  rep_join_code_hash text,
+  rep_join_code_updated_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint organization_settings_org_unique unique (organization_id)
@@ -676,6 +678,168 @@ end;
 $$;
 
 grant execute on function public.bootstrap_organization(text, text, text) to authenticated;
+
+drop function if exists public.generate_organization_rep_join_code(uuid);
+create function public.generate_organization_rep_join_code(input_organization_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  next_join_code text := upper(encode(gen_random_bytes(4), 'hex'));
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  if input_organization_id is null then
+    raise exception 'Organization is required.';
+  end if;
+
+  if not public.is_organization_admin(input_organization_id) then
+    raise exception 'Only organization owners or admins can generate a rep join code.';
+  end if;
+
+  insert into public.organization_settings (
+    organization_id,
+    rep_join_code_hash,
+    rep_join_code_updated_at
+  )
+  values (
+    input_organization_id,
+    crypt(next_join_code, gen_salt('bf')),
+    now()
+  )
+  on conflict (organization_id) do update
+  set
+    rep_join_code_hash = excluded.rep_join_code_hash,
+    rep_join_code_updated_at = excluded.rep_join_code_updated_at;
+
+  return next_join_code;
+end;
+$$;
+
+grant execute on function public.generate_organization_rep_join_code(uuid) to authenticated;
+
+drop function if exists public.join_organization_with_code(text, text);
+create function public.join_organization_with_code(
+  input_slug text,
+  input_code text
+)
+returns table (
+  organization_id uuid,
+  membership_id uuid,
+  membership_role public.membership_role
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  normalized_slug text := lower(trim(coalesce(input_slug, '')));
+  normalized_code text := upper(regexp_replace(trim(coalesce(input_code, '')), '[^A-Za-z0-9]', '', 'g'));
+  target_organization public.organizations%rowtype;
+  target_settings public.organization_settings%rowtype;
+  existing_membership public.memberships%rowtype;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  if normalized_slug = '' then
+    raise exception 'Dealership slug is required.';
+  end if;
+
+  if normalized_code = '' then
+    raise exception 'Rep join code is required.';
+  end if;
+
+  insert into public.profiles (
+    id,
+    email,
+    full_name,
+    avatar_url,
+    title
+  )
+  values (
+    current_user_id,
+    coalesce(auth.jwt()->>'email', ''),
+    nullif(
+      coalesce(
+        auth.jwt()->'user_metadata'->>'full_name',
+        auth.jwt()->'user_metadata'->>'name',
+        ''
+      ),
+      ''
+    ),
+    nullif(auth.jwt()->'user_metadata'->>'avatar_url', ''),
+    nullif(auth.jwt()->'user_metadata'->>'title', '')
+  )
+  on conflict (id) do update
+  set
+    email = excluded.email,
+    full_name = coalesce(public.profiles.full_name, excluded.full_name),
+    avatar_url = coalesce(public.profiles.avatar_url, excluded.avatar_url),
+    title = coalesce(public.profiles.title, excluded.title);
+
+  select *
+  into target_organization
+  from public.organizations
+  where slug = normalized_slug
+  limit 1;
+
+  if not found then
+    raise exception 'Invalid dealership slug or rep join code.';
+  end if;
+
+  select *
+  into target_settings
+  from public.organization_settings
+  where organization_id = target_organization.id
+  limit 1;
+
+  if target_settings.rep_join_code_hash is null then
+    raise exception 'This dealership has not generated a rep join code yet.';
+  end if;
+
+  if crypt(normalized_code, target_settings.rep_join_code_hash) <> target_settings.rep_join_code_hash then
+    raise exception 'Invalid dealership slug or rep join code.';
+  end if;
+
+  select *
+  into existing_membership
+  from public.memberships
+  where organization_id = target_organization.id
+    and profile_id = current_user_id
+  limit 1;
+
+  if found then
+    organization_id := existing_membership.organization_id;
+    membership_id := existing_membership.id;
+    membership_role := existing_membership.role;
+    return next;
+  end if;
+
+  insert into public.memberships (
+    organization_id,
+    profile_id,
+    role
+  )
+  values (
+    target_organization.id,
+    current_user_id,
+    'rep'
+  )
+  returning public.memberships.organization_id, public.memberships.id, public.memberships.role
+  into organization_id, membership_id, membership_role;
+
+  return next;
+end;
+$$;
+
+grant execute on function public.join_organization_with_code(text, text) to authenticated;
 
 drop function if exists public.get_public_appointment_by_short_id(text);
 create function public.get_public_appointment_by_short_id(input_short_id text)
