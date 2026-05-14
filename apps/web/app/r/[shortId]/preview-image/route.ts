@@ -14,21 +14,28 @@ export async function GET(
     params: RouteParams;
   },
 ) {
-  const { shortId } = await params;
-  const record = await getAppointmentRecord(shortId);
-  const resolvedImage =
-    record && !record.vehicleImageUrl ? await resolveVehicleImage(record.vehicle) : null;
-  const response = renderAppointmentPreviewImage(
-    record
-      ? {
-          ...record,
-          vehicleImageUrl:
-            record.vehicleImageUrl ??
-            resolvedImage?.imageUrl ??
-            buildFallbackVehicleImageDataUrl(record.vehicle),
-        }
-      : record,
-  );
+  let response: Response;
+
+  try {
+    const { shortId } = await params;
+    const record = await getAppointmentRecord(shortId);
+    const resolvedImage =
+      record && !record.vehicleImageUrl ? await resolveVehicleImage(record.vehicle) : null;
+
+    response = renderAppointmentPreviewImage(
+      record
+        ? {
+            ...record,
+            vehicleImageUrl:
+              record.vehicleImageUrl ??
+              resolvedImage?.imageUrl ??
+              buildFallbackVehicleImageDataUrl(record.vehicle),
+          }
+        : record,
+    );
+  } catch {
+    response = renderAppointmentPreviewImage(null);
+  }
 
   response.headers.set(
     'cache-control',

@@ -1,6 +1,8 @@
 import { browser } from 'wxt/browser';
 
 const SIDE_PANEL_PATH = 'sidepanel.html';
+const RECENT_OPEN_WINDOW_MS = 900;
+let lastOpenRequest: { tabId: number; at: number } | null = null;
 
 function hasSidePanelOpenApi() {
   return Boolean(
@@ -16,7 +18,7 @@ function hasSidePanelBehaviorApi() {
   );
 }
 
-function enableWorkspaceSidePanel() {
+function enableWorkspaceSidePanel(tabId?: number) {
   if (!browser.sidePanel || typeof browser.sidePanel.setOptions !== 'function') {
     return Promise.resolve();
   }
@@ -24,10 +26,28 @@ function enableWorkspaceSidePanel() {
   return browser.sidePanel.setOptions({
     enabled: true,
     path: SIDE_PANEL_PATH,
+    ...(typeof tabId === 'number' ? { tabId } : {}),
   });
 }
 
 async function openWorkspaceForTab(tabId: number) {
+  const now = Date.now();
+
+  if (
+    lastOpenRequest &&
+    lastOpenRequest.tabId === tabId &&
+    now - lastOpenRequest.at < RECENT_OPEN_WINDOW_MS
+  ) {
+    return;
+  }
+
+  lastOpenRequest = {
+    tabId,
+    at: now,
+  };
+
+  await enableWorkspaceSidePanel(tabId);
+
   if (!hasSidePanelOpenApi()) {
     return;
   }
@@ -60,13 +80,11 @@ export default defineBackground(() => {
     void configureSidePanelBehavior().catch(() => {});
   });
 
-  if (!hasSidePanelBehaviorApi()) {
-    browser.action.onClicked.addListener((tab) => {
-      if (!tab.id) {
-        return;
-      }
+  browser.action.onClicked.addListener((tab) => {
+    if (!tab.id) {
+      return;
+    }
 
-      void openWorkspaceForTab(tab.id).catch(() => {});
-    });
-  }
+    void openWorkspaceForTab(tab.id).catch(() => {});
+  });
 });

@@ -16,7 +16,13 @@ export async function generateMetadata({
   params: RouteParams;
 }): Promise<Metadata> {
   const { shortId } = await params;
-  const record = await getAppointmentRecord(shortId);
+  let record = null;
+
+  try {
+    record = await getAppointmentRecord(shortId);
+  } catch {
+    record = null;
+  }
 
   if (!record) {
     return {
@@ -74,7 +80,13 @@ export default async function PublicAppointmentPage({
 }) {
   const { shortId } = await params;
   const resolvedSearchParams = await searchParams;
-  const record = await getAppointmentRecord(shortId);
+  let record = null;
+
+  try {
+    record = await getAppointmentRecord(shortId);
+  } catch {
+    record = null;
+  }
 
   if (!record) {
     notFound();

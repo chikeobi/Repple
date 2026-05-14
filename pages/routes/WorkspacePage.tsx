@@ -620,12 +620,20 @@ export function WorkspacePage({
       return;
     }
 
-    await navigator.clipboard.writeText(smsDraft);
-    setCopyLabel('Copied');
-    void recordWorkspaceAppointmentEvent(generated.id, 'message_copied', {
-      source: 'extension',
-      vehicle: generated.vehicle,
-    });
+    try {
+      await navigator.clipboard.writeText(smsDraft);
+      setCopyLabel('Copied');
+      void recordWorkspaceAppointmentEvent(generated.id, 'message_copied', {
+        source: 'extension',
+        vehicle: generated.vehicle,
+      });
+    } catch (copyError) {
+      setError(
+        copyError instanceof Error
+          ? copyError.message
+          : 'Unable to copy the CRM-ready message right now.',
+      );
+    }
   }
 
   function buildEmbeddedLandingPageUrl(url: string) {
@@ -650,6 +658,7 @@ export function WorkspacePage({
       });
 
       if (!tab?.id) {
+        await browser.tabs.create({ url: record.landingPageUrl });
         return;
       }
 
@@ -751,6 +760,13 @@ export function WorkspacePage({
         },
       });
     } catch (previewError) {
+      try {
+        await browser.tabs.create({ url: record.landingPageUrl });
+        setError('Opened the public card in a new tab because inline preview was unavailable.');
+      } catch {
+        setError('Unable to open the public card right now.');
+      }
+
       debugLog(REPPLE_DEBUG_PREFIX, {
         action: 'open-page-preview-failed',
         error: previewError,
