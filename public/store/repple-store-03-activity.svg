@@ -1,0 +1,27 @@
+<svg width="1280" height="800" viewBox="0 0 1280 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="800" rx="40" fill="#F3F7FB"/>
+  <rect x="52" y="52" width="1176" height="696" rx="32" fill="white" stroke="#D8E1EB"/>
+  <rect x="92" y="92" width="1096" height="616" rx="28" fill="#FBFCFE" stroke="#E3E9F0"/>
+  <rect x="132" y="132" width="128" height="16" rx="8" fill="#C76D2A"/>
+  <rect x="132" y="164" width="356" height="38" rx="19" fill="#162A45"/>
+  <rect x="132" y="234" width="1020" height="112" rx="24" fill="white" stroke="#DCE3EA"/>
+  <rect x="160" y="262" width="150" height="14" rx="7" fill="#8B9CB0"/>
+  <rect x="160" y="290" width="380" height="18" rx="9" fill="#223955"/>
+  <rect x="908" y="256" width="216" height="28" rx="14" fill="#EFF8F0"/>
+  <rect x="908" y="292" width="170" height="14" rx="7" fill="#B7C6D8"/>
+  <rect x="132" y="370" width="1020" height="112" rx="24" fill="white" stroke="#DCE3EA"/>
+  <rect x="160" y="398" width="150" height="14" rx="7" fill="#8B9CB0"/>
+  <rect x="160" y="426" width="420" height="18" rx="9" fill="#223955"/>
+  <rect x="908" y="392" width="216" height="28" rx="14" fill="#FFF3E7"/>
+  <rect x="908" y="428" width="170" height="14" rx="7" fill="#B7C6D8"/>
+  <rect x="132" y="506" width="1020" height="112" rx="24" fill="white" stroke="#DCE3EA"/>
+  <rect x="160" y="534" width="150" height="14" rx="7" fill="#8B9CB0"/>
+  <rect x="160" y="562" width="360" height="18" rx="9" fill="#223955"/>
+  <rect x="908" y="528" width="216" height="28" rx="14" fill="#EEF4FB"/>
+  <rect x="908" y="564" width="170" height="14" rx="7" fill="#B7C6D8"/>
+  <text x="132" y="146" fill="#C76D2A" font-family="Arial, sans-serif" font-size="22" font-weight="700">Rep Activity</text>
+  <text x="132" y="194" fill="#162A45" font-family="Arial, sans-serif" font-size="30" font-weight="700">Track viewed, confirmed, and rescheduled cards</text>
+  <text x="938" y="412" fill="#8C4B1D" font-family="Arial, sans-serif" font-size="20" font-weight="700">Reschedule requested</text>
+  <text x="956" y="276" fill="#2E6B3F" font-family="Arial, sans-serif" font-size="20" font-weight="700">Confirmed</text>
+  <text x="976" y="548" fill="#3C5979" font-family="Arial, sans-serif" font-size="20" font-weight="700">Viewed</text>
+</svg>

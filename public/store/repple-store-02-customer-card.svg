@@ -1,0 +1,19 @@
+<svg width="1280" height="800" viewBox="0 0 1280 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="800" rx="40" fill="#F8F4EF"/>
+  <rect x="84" y="84" width="1112" height="632" rx="32" fill="#FFFDFB" stroke="#E9DED2"/>
+  <rect x="150" y="118" width="980" height="564" rx="36" fill="#11243D"/>
+  <rect x="190" y="158" width="900" height="484" rx="28" fill="white"/>
+  <rect x="232" y="200" width="138" height="18" rx="9" fill="#C76D2A"/>
+  <rect x="232" y="232" width="328" height="42" rx="20" fill="#162A45"/>
+  <rect x="232" y="290" width="540" height="16" rx="8" fill="#DCE3EA"/>
+  <rect x="232" y="314" width="450" height="16" rx="8" fill="#E8EDF3"/>
+  <rect x="232" y="360" width="816" height="200" rx="28" fill="#EDF2F7"/>
+  <path d="M282 500L426 390L532 454L646 344L784 500V530H282V500Z" fill="#B86D35"/>
+  <circle cx="740" cy="394" r="34" fill="#F0C98C"/>
+  <rect x="232" y="584" width="188" height="44" rx="16" fill="#11243D"/>
+  <rect x="438" y="584" width="188" height="44" rx="16" fill="#FFF3E7" stroke="#E4C8AC"/>
+  <text x="232" y="214" fill="#C76D2A" font-family="Arial, sans-serif" font-size="22" font-weight="700">Customer Experience</text>
+  <text x="232" y="262" fill="#162A45" font-family="Arial, sans-serif" font-size="30" font-weight="700">Premium appointment card without fake video</text>
+  <text x="232" y="615" fill="white" font-family="Arial, sans-serif" font-size="20" font-weight="700">Confirm Appointment</text>
+  <text x="468" y="615" fill="#8C4B1D" font-family="Arial, sans-serif" font-size="20" font-weight="700">Request Reschedule</text>
+</svg>

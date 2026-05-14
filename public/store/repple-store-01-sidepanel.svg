@@ -1,0 +1,35 @@
+<svg width="1280" height="800" viewBox="0 0 1280 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="800" rx="40" fill="#F5F7FB"/>
+  <rect x="40" y="40" width="1200" height="720" rx="32" fill="white" stroke="#D9E0EA"/>
+  <rect x="72" y="72" width="720" height="656" rx="24" fill="#FBFCFE" stroke="#E3E8EF"/>
+  <rect x="824" y="72" width="384" height="656" rx="24" fill="#11243D"/>
+  <rect x="112" y="116" width="170" height="20" rx="10" fill="#C76D2A"/>
+  <rect x="112" y="148" width="312" height="42" rx="18" fill="#162A45"/>
+  <rect x="112" y="206" width="548" height="16" rx="8" fill="#D8DFE8"/>
+  <rect x="112" y="230" width="468" height="16" rx="8" fill="#E7ECF2"/>
+  <rect x="112" y="284" width="536" height="92" rx="22" fill="white" stroke="#E0E6EE"/>
+  <rect x="136" y="308" width="160" height="14" rx="7" fill="#8DA0B5"/>
+  <rect x="136" y="336" width="488" height="18" rx="9" fill="#223955"/>
+  <rect x="112" y="396" width="536" height="92" rx="22" fill="white" stroke="#E0E6EE"/>
+  <rect x="136" y="420" width="140" height="14" rx="7" fill="#8DA0B5"/>
+  <rect x="136" y="448" width="420" height="18" rx="9" fill="#223955"/>
+  <rect x="112" y="508" width="536" height="92" rx="22" fill="white" stroke="#E0E6EE"/>
+  <rect x="136" y="532" width="180" height="14" rx="7" fill="#8DA0B5"/>
+  <rect x="136" y="560" width="388" height="18" rx="9" fill="#223955"/>
+  <rect x="112" y="636" width="216" height="52" rx="18" fill="#11243D"/>
+  <rect x="848" y="108" width="110" height="16" rx="8" fill="#D18A56"/>
+  <rect x="848" y="140" width="252" height="34" rx="17" fill="white" fill-opacity="0.18"/>
+  <rect x="848" y="196" width="336" height="210" rx="28" fill="#1E3554"/>
+  <rect x="868" y="216" width="296" height="170" rx="22" fill="#D7DFEA"/>
+  <path d="M912 338L980 282L1030 314L1084 252L1150 338V352H912V338Z" fill="#B86D35"/>
+  <circle cx="1126" cy="252" r="22" fill="#F0C98C"/>
+  <rect x="848" y="436" width="336" height="108" rx="24" fill="white" fill-opacity="0.12"/>
+  <rect x="872" y="462" width="148" height="14" rx="7" fill="white" fill-opacity="0.52"/>
+  <rect x="872" y="490" width="218" height="18" rx="9" fill="white"/>
+  <rect x="848" y="572" width="160" height="44" rx="16" fill="#D18A56"/>
+  <rect x="1024" y="572" width="160" height="44" rx="16" fill="white" fill-opacity="0.16"/>
+  <text x="112" y="120" fill="#C76D2A" font-family="Arial, sans-serif" font-size="22" font-weight="700">Repple Side Panel</text>
+  <text x="112" y="176" fill="#162A45" font-family="Arial, sans-serif" font-size="28" font-weight="700">Generate from CRM data in seconds</text>
+  <text x="848" y="118" fill="#D18A56" font-family="Arial, sans-serif" font-size="22" font-weight="700">Live Preview</text>
+  <text x="872" y="502" fill="white" font-family="Arial, sans-serif" font-size="26" font-weight="700">Saturday, May 18 at 10:30 AM</text>
+</svg>

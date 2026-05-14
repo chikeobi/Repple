@@ -2,18 +2,21 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'wxt';
 
 function getHostPermissions() {
-  const supabaseUrl = import.meta.env.WXT_SUPABASE_URL;
-  const permissions = new Set<string>(['<all_urls>']);
+  return ['http://*/*', 'https://*/*'];
+}
 
-  if (!supabaseUrl) {
-    return Array.from(permissions);
+function getSiteUrl() {
+  const rawSiteUrl =
+    import.meta.env.NEXT_PUBLIC_SITE_URL?.trim() || import.meta.env.WXT_SITE_URL?.trim();
+
+  if (!rawSiteUrl) {
+    return 'https://repple.ai';
   }
 
   try {
-    permissions.add(`${new URL(supabaseUrl).origin}/*`);
-    return Array.from(permissions);
+    return new URL(rawSiteUrl).origin;
   } catch {
-    return Array.from(permissions);
+    return 'https://repple.ai';
   }
 }
 
@@ -21,12 +24,20 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: () => ({
     name: 'Repple',
+    short_name: 'Repple',
     description:
-      'Generate personalized appointment media pages for dealership customers.',
-    permissions: ['activeTab', 'scripting', 'storage', 'sidePanel', 'tabs'],
+      'Generate dealership appointment cards from CRM data in the Chrome side panel.',
+    permissions: ['scripting', 'storage', 'sidePanel', 'tabs'],
     host_permissions: getHostPermissions(),
+    homepage_url: getSiteUrl(),
+    icons: {
+      16: 'icons/repple-16.png',
+      32: 'icons/repple-32.png',
+      48: 'icons/repple-48.png',
+      128: 'icons/repple-128.png',
+    },
     action: {
-      default_title: 'Open Repple workspace',
+      default_title: 'Open Repple side panel',
     },
   }),
   vite: () => ({
