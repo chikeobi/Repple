@@ -4,6 +4,8 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    "../../components/**/*.ts",
+    "../../components/**/*.tsx",
     "../../shared/**/*.ts"
   ],
   "exclude": [
