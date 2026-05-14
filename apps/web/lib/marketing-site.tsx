@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { CSSProperties, ReactNode } from 'react';
 
-import { AppointmentCard } from '../../../components/AppointmentCard';
+import { AppointmentCard } from '../components/AppointmentCard';
 import { createSharedAppointmentRecord } from '../../../shared/appointment-record';
 import { buildVehicleImageRenderUrl } from '../../../shared/vehicle-images';
 import { getSiteUrl } from './env';

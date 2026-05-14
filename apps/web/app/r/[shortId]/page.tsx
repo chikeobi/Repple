@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { getAppointmentRecord } from '../../../lib/appointments';
 import { buildMetaDescription, buildPreviewImageUrl } from '../../../lib/repple';
-import { AppointmentCard } from './appointment-card';
+import { AppointmentCard } from './appointment-card-local';
 
 export const dynamic = 'force-dynamic';
 
