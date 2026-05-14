@@ -526,6 +526,35 @@ export function WorkspacePage({
   }, []);
 
   useEffect(() => {
+    if (activeTab !== 'activity') {
+      return;
+    }
+
+    void loadActivityRecordsRef.current();
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void loadActivityRecordsRef.current();
+      }
+    }, 15000);
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        void loadActivityRecordsRef.current();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleVisibilityRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
+  }, [activeTab, workspace.activeMembership.organization.id]);
+
+  useEffect(() => {
     const vehicle = draft.vehicle.trim();
 
     if (vehicle.length < 4) {

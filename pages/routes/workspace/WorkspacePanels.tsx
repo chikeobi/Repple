@@ -3,6 +3,7 @@ import type { FormEventHandler, RefObject } from 'react';
 import { AppointmentCard } from '../../../components/AppointmentCard';
 import { Button } from '../../../components/Button';
 import { FormField } from '../../../components/FormField';
+import { getAppointmentStatusSummary } from '../../../shared/appointment-status';
 import {
   formatOrganizationSubscriptionStatus,
 } from '../../../shared/billing';
@@ -208,59 +209,68 @@ export function ActivityWorkspaceTab({
       ) : null}
 
       {activityRecords.map((record) => (
-        <button
-          className="w-full rounded-[18px] bg-white/92 px-4 py-4 text-left shadow-[0_14px_32px_rgba(15,23,42,0.06)] transition hover:bg-white"
-          key={record.id}
-          onClick={() => onOpenLandingPage(record)}
-          type="button"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-[15px] font-semibold leading-5 text-[var(--repple-ink)]">
-                {record.firstName}
-              </p>
-              <p className="mt-1 truncate text-[13px] leading-5 text-[var(--repple-muted)]">
-                {record.vehicle}
-              </p>
-              <p className="mt-1 text-[11px] leading-4 text-[var(--repple-muted)]">
-                Generated {formatActivityTimestamp(record.createdAt)}
-              </p>
-            </div>
-            <span className="shrink-0 text-[11px] font-medium leading-4 text-[var(--repple-accent-deep)]">
-              View Card
-            </span>
-          </div>
+        (() => {
+          const latestStatus = getAppointmentStatusSummary(record);
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                record.viewedAt
-                  ? 'bg-[rgba(10,132,255,0.12)] text-[var(--repple-accent-deep)]'
-                  : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
-              }`}
+          return (
+            <button
+              className="w-full rounded-[18px] bg-white/92 px-4 py-4 text-left shadow-[0_14px_32px_rgba(15,23,42,0.06)] transition hover:bg-white"
+              key={record.id}
+              onClick={() => onOpenLandingPage(record)}
+              type="button"
             >
-              {record.viewedAt ? 'Viewed' : 'Not Viewed'}
-            </span>
-            <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                record.confirmedAt
-                  ? 'bg-[rgba(16,185,129,0.12)] text-[#0f766e]'
-                  : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
-              }`}
-            >
-              {record.confirmedAt ? 'Confirmed' : 'Not Confirmed'}
-            </span>
-            <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                record.rescheduleRequestedAt
-                  ? 'bg-[rgba(245,158,11,0.14)] text-[#9a6700]'
-                  : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
-              }`}
-            >
-              {record.rescheduleRequestedAt ? 'Reschedule Requested' : 'No Reschedule'}
-            </span>
-          </div>
-        </button>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold leading-5 text-[var(--repple-ink)]">
+                    {record.firstName}
+                  </p>
+                  <p className="mt-1 truncate text-[13px] leading-5 text-[var(--repple-muted)]">
+                    {record.vehicle}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-4 text-[var(--repple-muted)]">
+                    Generated {formatActivityTimestamp(record.createdAt)}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-4 text-[var(--repple-muted)]">
+                    Latest: {latestStatus.label} {formatActivityTimestamp(latestStatus.occurredAt)}
+                  </p>
+                </div>
+                <span className="shrink-0 text-[11px] font-medium leading-4 text-[var(--repple-accent-deep)]">
+                  View Card
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                    record.viewedAt
+                      ? 'bg-[rgba(10,132,255,0.12)] text-[var(--repple-accent-deep)]'
+                      : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
+                  }`}
+                >
+                  {record.viewedAt ? 'Viewed' : 'Not Viewed'}
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                    record.confirmedAt
+                      ? 'bg-[rgba(16,185,129,0.12)] text-[#0f766e]'
+                      : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
+                  }`}
+                >
+                  {record.confirmedAt ? 'Confirmed' : 'Not Confirmed'}
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                    record.rescheduleRequestedAt
+                      ? 'bg-[rgba(245,158,11,0.14)] text-[#9a6700]'
+                      : 'bg-[rgba(15,23,42,0.06)] text-[var(--repple-muted)]'
+                  }`}
+                >
+                  {record.rescheduleRequestedAt ? 'Reschedule Requested' : 'No Reschedule'}
+                </span>
+              </div>
+            </button>
+          );
+        })()
       ))}
     </div>
   );

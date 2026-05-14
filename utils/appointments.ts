@@ -1,332 +1,176 @@
 import {
   buildPublicLandingPageUrl,
   buildPreviewImageUrl,
-  buildSmsText,
   createAppointmentRecord,
   generateAppointmentId,
-  isLegacyAppointmentId,
   isStandardAppointmentId,
   isSupportedAppointmentId,
   normalizeAppointmentId,
 } from './repple';
-import { getAppointment as getLocalAppointment, saveAppointment as saveLocalAppointment } from './storage';
+import {
+  getAppointment as getLocalAppointment,
+  listAppointments as listLocalAppointments,
+  saveAppointment as saveLocalAppointment,
+} from './storage';
 import { isDevelopment, shouldUseLocalFallback, supabase } from './supabase';
+import { recordWorkspaceAppointmentEvent } from './analytics';
+import { sortAppointmentsByLatestActivity } from '../shared/appointment-status';
+import { assertOrganizationCanGenerateAppointments } from '../shared/billing';
 import type { AppointmentDraft, AppointmentRecord } from './types';
-import { hydrateMockVideoGeneration, reconcileMockVideoGeneration } from './video-generation';
+import type { WorkspaceContext } from '../shared/auth-contract';
+import { hydrateProductionAppointmentRecord } from '../shared/appointment-record';
+import type { AppointmentRow } from '../shared/supabase-schema';
 import type { VehicleImageSelection } from '../shared/repple-contract';
 
-const APPOINTMENTS_TABLE = 'repple_appointments';
+const APPOINTMENTS_TABLE = 'appointments';
 const MAX_SHORT_ID_ATTEMPTS = 5;
-const APPOINTMENT_SELECT =
-  'generated_id, legacy_generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, vehicle_image_url, vehicle_image_provider, vehicle_image_source_page_url, vehicle_image_confidence, created_at';
-const LEGACY_COMPAT_APPOINTMENT_SELECT =
-  'generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, vehicle_image_url, vehicle_image_provider, vehicle_image_source_page_url, vehicle_image_confidence, created_at';
-const MINIMAL_APPOINTMENT_SELECT =
-  'generated_id, customer_name, vehicle, appointment_time, salesperson_name, dealership_name, address, created_at';
+const PRODUCTION_APPOINTMENT_SELECT =
+  'id, organization_id, created_by_profile_id, short_id, customer_name, customer_phone_optional, vehicle, vin_optional, vehicle_image_url, appointment_time, salesperson_name, salesperson_title, salesperson_avatar_url, dealership_name, dealership_address, public_url, created_at, opened_at, confirmed_at, reschedule_requested_at, reschedule_note, status';
 
-type SupabaseAppointmentRow = {
-  generated_id: string | null;
-  legacy_generated_id?: string | null;
-  customer_name: string | null;
-  vehicle: string | null;
-  appointment_time: string | null;
-  salesperson_name: string | null;
-  dealership_name: string | null;
-  address: string | null;
-  vehicle_image_url?: string | null;
-  vehicle_image_provider?: string | null;
-  vehicle_image_source_page_url?: string | null;
-  vehicle_image_confidence?: string | null;
-  created_at: string | null;
-};
-
-type FrozenSchemaAppointmentRow = {
-  generated_id: string;
-  legacy_generated_id: string | null;
-  customer_name: string;
-  vehicle: string;
-  appointment_time: string;
-  salesperson_name: string;
-  dealership_name: string;
-  address: string;
-  vehicle_image_url: string | null;
-  vehicle_image_provider:
-    | 'crm-page'
-    | 'inventory-page'
-    | 'vin-lookup'
-    | 'external-api'
-    | 'fallback'
-    | null;
-  vehicle_image_source_page_url: string | null;
-  vehicle_image_confidence: 'high' | 'medium' | 'low' | null;
-  created_at: string;
-};
-
-type SupabaseError = {
-  code?: string;
-  message: string;
-};
-
-function toError(error: SupabaseError) {
-  const nextError = new Error(error.message) as Error & { code?: string };
-  nextError.code = error.code;
-  return nextError;
+function hydrateAppointmentRecord(row: AppointmentRow) {
+  return hydrateProductionAppointmentRecord(row, {
+    buildPublicLandingPageUrl,
+    buildPreviewImageUrl,
+  });
 }
 
-function toSupabaseRow(record: AppointmentRecord): FrozenSchemaAppointmentRow {
+function applyWorkspaceBranding(record: AppointmentRecord, workspace: WorkspaceContext) {
   return {
-    generated_id: record.id,
-    legacy_generated_id: null,
+    ...record,
+    dealershipLogoUrl:
+      workspace.activeMembership.organization.logo_url ?? record.dealershipLogoUrl ?? null,
+    dealershipBrandColor:
+      workspace.activeMembership.organization.brand_color ?? record.dealershipBrandColor ?? null,
+  };
+}
+
+function buildDraftWithWorkspaceDefaults(
+  draft: AppointmentDraft,
+  workspace: WorkspaceContext,
+) {
+  return {
+    firstName: draft.firstName.trim(),
+    vehicle: draft.vehicle.trim(),
+    appointmentTime: draft.appointmentTime.trim(),
+    salespersonName: draft.salespersonName.trim() || workspace.profile.full_name?.trim() || '',
+    dealershipName: draft.dealershipName.trim() || workspace.activeMembership.organization.name,
+    dealershipAddress:
+      draft.dealershipAddress.trim() || workspace.activeMembership.organization.address?.trim() || '',
+  } satisfies AppointmentDraft;
+}
+
+function buildAppointmentInsertPayload(
+  record: AppointmentRecord,
+  workspace: WorkspaceContext,
+  options?: { vin?: string | null },
+) {
+  return {
+    organization_id: workspace.activeMembership.organization.id,
+    created_by_profile_id: workspace.profile.id,
+    short_id: record.id,
     customer_name: record.firstName,
+    customer_phone_optional: null,
     vehicle: record.vehicle,
+    vin_optional: options?.vin?.trim() ?? null,
+    vehicle_image_url: record.vehicleImageUrl,
     appointment_time: record.appointmentTime,
     salesperson_name: record.salespersonName,
+    salesperson_title: workspace.profile.title ?? null,
+    salesperson_avatar_url: workspace.profile.avatar_url ?? null,
     dealership_name: record.dealershipName,
-    address: record.dealershipAddress,
-    vehicle_image_url: record.vehicleImageUrl,
-    vehicle_image_provider: record.vehicleImageProvider,
-    vehicle_image_source_page_url: record.vehicleImageSourcePageUrl,
-    vehicle_image_confidence: record.vehicleImageConfidence,
+    dealership_address: record.dealershipAddress,
+    public_url: record.landingPageUrl,
     created_at: record.createdAt,
+    opened_at: record.viewedAt,
+    confirmed_at: record.confirmedAt,
+    reschedule_requested_at: record.rescheduleRequestedAt,
+    reschedule_note: record.rescheduleNote,
+    status: record.status ?? 'generated',
   };
 }
 
-function toLegacyCompatibleSupabaseRow(record: AppointmentRecord) {
-  return {
-    generated_id: record.id,
-    customer_name: record.firstName,
-    vehicle: record.vehicle,
-    appointment_time: record.appointmentTime,
-    salesperson_name: record.salespersonName,
-    dealership_name: record.dealershipName,
-    address: record.dealershipAddress,
-    vehicle_image_url: record.vehicleImageUrl,
-    vehicle_image_provider: record.vehicleImageProvider,
-    vehicle_image_source_page_url: record.vehicleImageSourcePageUrl,
-    vehicle_image_confidence: record.vehicleImageConfidence,
-    created_at: record.createdAt,
-  };
+function isDuplicateShortIdError(error: { code?: string; message: string } | null) {
+  return error?.code === '23505' || error?.message.includes('short_id');
 }
 
-function normalizeSupabaseRow(
-  row: SupabaseAppointmentRow | null | undefined,
-): FrozenSchemaAppointmentRow | null {
-  if (!row) {
-    return null;
-  }
-
-  if (
-    !row.generated_id ||
-    !row.customer_name ||
-    !row.vehicle ||
-    !row.appointment_time ||
-    !row.salesperson_name ||
-    !row.dealership_name ||
-    !row.address ||
-    !row.created_at
-  ) {
-    return null;
-  }
-
-  const normalizedGeneratedId = normalizeAppointmentId(row.generated_id);
-  const normalizedLegacyId = row.legacy_generated_id
-    ? normalizeAppointmentId(row.legacy_generated_id)
-    : null;
-
-  if (!isSupportedAppointmentId(normalizedGeneratedId)) {
-    return null;
-  }
-
-  if (normalizedLegacyId && !isLegacyAppointmentId(normalizedLegacyId)) {
-    return null;
-  }
-
-  const vehicleImageProvider = row.vehicle_image_provider ?? null;
-  const vehicleImageConfidence = row.vehicle_image_confidence ?? null;
-
-  if (
-    vehicleImageProvider &&
-    !['crm-page', 'inventory-page', 'vin-lookup', 'external-api', 'fallback'].includes(
-      vehicleImageProvider,
-    )
-  ) {
-    return null;
-  }
-
-  if (vehicleImageConfidence && !['high', 'medium', 'low'].includes(vehicleImageConfidence)) {
-    return null;
-  }
-
-  return {
-    generated_id: normalizedGeneratedId,
-    legacy_generated_id: normalizedLegacyId,
-    customer_name: row.customer_name,
-    vehicle: row.vehicle,
-    appointment_time: row.appointment_time,
-    salesperson_name: row.salesperson_name,
-    dealership_name: row.dealership_name,
-    address: row.address,
-    vehicle_image_url: row.vehicle_image_url ?? null,
-    vehicle_image_provider: vehicleImageProvider as FrozenSchemaAppointmentRow['vehicle_image_provider'],
-    vehicle_image_source_page_url: row.vehicle_image_source_page_url ?? null,
-    vehicle_image_confidence:
-      vehicleImageConfidence as FrozenSchemaAppointmentRow['vehicle_image_confidence'],
-    created_at: row.created_at,
-  };
-}
-
-function fromSupabaseRow(
-  row: FrozenSchemaAppointmentRow,
-  _landingPageUrl: string,
-): AppointmentRecord {
-  const baseRecord = {
-    id: row.generated_id,
-    firstName: row.customer_name.trim(),
-    vehicle: row.vehicle.trim(),
-    appointmentTime: row.appointment_time.trim(),
-    salespersonName: row.salesperson_name.trim(),
-    dealershipName: row.dealership_name.trim(),
-    dealershipAddress: row.address.trim(),
-    landingPageUrl: buildPublicLandingPageUrl(row.generated_id),
-    previewImageUrl: buildPreviewImageUrl(row.generated_id),
-    vehicleImageUrl: row.vehicle_image_url,
-    vehicleImageProvider: row.vehicle_image_provider,
-    vehicleImageSourcePageUrl: row.vehicle_image_source_page_url,
-    vehicleImageConfidence: row.vehicle_image_confidence,
-    smsText: '',
-    createdAt: row.created_at,
-  };
-
-  const hydratedRecord = hydrateMockVideoGeneration(baseRecord);
-
-  return {
-    ...hydratedRecord,
-    smsText: buildSmsText(hydratedRecord),
-  };
-}
-
-export async function saveAppointmentRecord(record: AppointmentRecord): Promise<AppointmentRecord> {
-  if (shouldUseLocalFallback) {
+export async function saveAppointmentRecord(
+  record: AppointmentRecord,
+  options?: {
+    vin?: string | null;
+  },
+  workspace?: WorkspaceContext,
+): Promise<AppointmentRecord> {
+  if (shouldUseLocalFallback || !supabase || !workspace) {
     await saveLocalAppointment(record);
     return record;
   }
 
-  if (!supabase) {
-    throw new Error(
-      'Supabase is not configured. Set WXT_SUPABASE_URL and WXT_SUPABASE_ANON_KEY.',
-    );
-  }
-
-  let { error } = await supabase.from(APPOINTMENTS_TABLE).insert(toSupabaseRow(record));
-
-  if (error && (isMissingLegacyColumnError(error) || isMissingVehicleImageColumnError(error))) {
-    ({ error } = await supabase
-      .from(APPOINTMENTS_TABLE)
-      .insert(toLegacyCompatibleSupabaseRow(record)));
-  }
-
-  if (error && isMissingVehicleImageColumnError(error)) {
-    ({ error } = await supabase.from(APPOINTMENTS_TABLE).insert({
-      generated_id: record.id,
-      customer_name: record.firstName,
-      vehicle: record.vehicle,
-      appointment_time: record.appointmentTime,
-      salesperson_name: record.salespersonName,
-      dealership_name: record.dealershipName,
-      address: record.dealershipAddress,
-      created_at: record.createdAt,
-    }));
-  }
+  const { data, error } = await supabase
+    .from(APPOINTMENTS_TABLE)
+    .insert(buildAppointmentInsertPayload(record, workspace, options))
+    .select(PRODUCTION_APPOINTMENT_SELECT)
+    .single();
 
   if (error) {
-    if (isDuplicateShortIdError(error)) {
-      throw toError(error);
-    }
-
     if (isDevelopment) {
       await saveLocalAppointment(record);
       return record;
     }
 
-    throw toError(error);
+    throw new Error(error.message);
   }
 
-  return record;
-}
-
-function isDuplicateShortIdError(error: SupabaseError) {
-  return error.code === '23505';
-}
-
-function isMissingLegacyColumnError(error: SupabaseError) {
-  return error.code === '42703' || error.message.includes('legacy_generated_id');
-}
-
-function isMissingVehicleImageColumnError(error: SupabaseError) {
-  return error.code === '42703' || error.message.includes('vehicle_image_');
-}
-
-async function selectAppointmentRow(id: string) {
-  const baseQuery = supabase!.from(APPOINTMENTS_TABLE);
-  const fullQuery = baseQuery.select(APPOINTMENT_SELECT);
-  const fullRequest = isLegacyAppointmentId(id)
-    ? fullQuery.or(`generated_id.eq.${id},legacy_generated_id.eq.${id}`)
-    : fullQuery.eq('generated_id', id);
-  const fullResult = await fullRequest.maybeSingle();
-
-  if (!fullResult.error) {
-    return fullResult;
-  }
-
-  if (
-    !isMissingLegacyColumnError(fullResult.error) &&
-    !isMissingVehicleImageColumnError(fullResult.error)
-  ) {
-    return fullResult;
-  }
-
-  const legacyResult = await baseQuery
-    .select(LEGACY_COMPAT_APPOINTMENT_SELECT)
-    .eq('generated_id', id)
-    .maybeSingle();
-
-  if (!legacyResult.error) {
-    return legacyResult;
-  }
-
-  if (!isMissingVehicleImageColumnError(legacyResult.error)) {
-    return legacyResult;
-  }
-
-  return baseQuery.select(MINIMAL_APPOINTMENT_SELECT).eq('generated_id', id).maybeSingle();
+  const hydratedRecord = {
+    ...hydrateAppointmentRecord(data as AppointmentRow),
+    dealershipLogoUrl:
+      workspace.activeMembership.organization.logo_url ?? record.dealershipLogoUrl ?? null,
+    dealershipBrandColor:
+      workspace.activeMembership.organization.brand_color ?? record.dealershipBrandColor ?? null,
+  };
+  await saveLocalAppointment(hydratedRecord);
+  return hydratedRecord;
 }
 
 export async function createAndSaveAppointmentRecord(
   draft: AppointmentDraft,
-  options?: { vehicleImage?: VehicleImageSelection | null },
+  options?: {
+    vehicleImage?: VehicleImageSelection | null;
+    vin?: string | null;
+    workspace?: WorkspaceContext;
+  },
 ): Promise<AppointmentRecord> {
-  if (shouldUseLocalFallback) {
+  const workspace = options?.workspace;
+
+  if (
+    workspace &&
+    !shouldUseLocalFallback
+  ) {
+    assertOrganizationCanGenerateAppointments(
+      workspace.activeMembership.organization.subscription_status,
+    );
+  }
+
+  if (shouldUseLocalFallback || !supabase || !workspace) {
     const record = createAppointmentRecord(draft, {
       vehicleImage: options?.vehicleImage ?? null,
+      smsTemplate: workspace?.organizationSettings?.default_sms_template ?? null,
+      dealershipLogoUrl: workspace?.activeMembership.organization.logo_url ?? null,
+      dealershipBrandColor: workspace?.activeMembership.organization.brand_color ?? null,
     });
 
     await saveLocalAppointment(record);
-
     return record;
-  }
-
-  if (!supabase) {
-    throw new Error(
-      'Supabase is not configured. Set WXT_SUPABASE_URL and WXT_SUPABASE_ANON_KEY.',
-    );
   }
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_SHORT_ID_ATTEMPTS; attempt += 1) {
-    const record = createAppointmentRecord(draft, {
+    const record = createAppointmentRecord(buildDraftWithWorkspaceDefaults(draft, workspace), {
       id: generateAppointmentId(),
       vehicleImage: options?.vehicleImage ?? null,
+      smsTemplate: workspace.organizationSettings?.default_sms_template ?? null,
+      dealershipLogoUrl: workspace.activeMembership.organization.logo_url ?? null,
+      dealershipBrandColor: workspace.activeMembership.organization.brand_color ?? null,
     });
 
     if (!isStandardAppointmentId(record.id)) {
@@ -334,9 +178,33 @@ export async function createAndSaveAppointmentRecord(
     }
 
     try {
-      return await saveAppointmentRecord(record);
+      const savedRecord = await saveAppointmentRecord(
+        {
+          ...record,
+          organizationId: workspace.activeMembership.organization.id,
+          createdByProfileId: workspace.profile.id,
+          salespersonTitle: workspace.profile.title ?? null,
+          salespersonAvatarUrl: workspace.profile.avatar_url ?? null,
+          status: 'generated',
+        },
+        {
+          vin: options?.vin ?? null,
+        },
+        workspace,
+      );
+
+      void recordWorkspaceAppointmentEvent(savedRecord.id, 'appointment_created', {
+        source: 'extension',
+        vehicle: savedRecord.vehicle,
+        appointment_time: savedRecord.appointmentTime,
+      });
+
+      return savedRecord;
     } catch (error) {
-      if (error instanceof Error && isDuplicateShortIdError(error as SupabaseError)) {
+      if (
+        error instanceof Error &&
+        isDuplicateShortIdError({ message: error.message })
+      ) {
         lastError = error;
         continue;
       }
@@ -353,7 +221,8 @@ export async function createAndSaveAppointmentRecord(
 
 export async function getAppointmentRecord(
   id: string,
-  landingPageUrl: string,
+  _landingPageUrl: string,
+  workspace?: WorkspaceContext,
 ): Promise<AppointmentRecord | null> {
   const normalizedId = normalizeAppointmentId(id);
 
@@ -361,43 +230,66 @@ export async function getAppointmentRecord(
     return null;
   }
 
-  if (shouldUseLocalFallback) {
-    const localRecord = await getLocalAppointment(normalizedId);
-
-    if (!localRecord) {
-      return null;
-    }
-
-    const reconciled = reconcileMockVideoGeneration(localRecord);
-
-    if (reconciled.changed) {
-      await saveLocalAppointment(reconciled.record);
-    }
-
-    return reconciled.record;
+  if (shouldUseLocalFallback || !supabase || !workspace) {
+    return getLocalAppointment(normalizedId);
   }
 
-  if (!supabase) {
-    throw new Error(
-      'Supabase is not configured. Set WXT_SUPABASE_URL and WXT_SUPABASE_ANON_KEY.',
-    );
-  }
-
-  const { data, error } = await selectAppointmentRow(normalizedId);
+  const { data, error } = await supabase
+    .from(APPOINTMENTS_TABLE)
+    .select(PRODUCTION_APPOINTMENT_SELECT)
+    .eq('organization_id', workspace.activeMembership.organization.id)
+    .eq('short_id', normalizedId)
+    .maybeSingle();
 
   if (error) {
     if (isDevelopment) {
       return getLocalAppointment(normalizedId);
     }
 
-    throw toError(error);
+    throw new Error(error.message);
   }
 
-  const row = normalizeSupabaseRow(data as SupabaseAppointmentRow | undefined);
-
-  if (!row) {
-    return null;
+  if (!data) {
+    return getLocalAppointment(normalizedId);
   }
 
-  return fromSupabaseRow(row, landingPageUrl);
+  const record = applyWorkspaceBranding(
+    hydrateAppointmentRecord(data as AppointmentRow),
+    workspace,
+  );
+  await saveLocalAppointment(record);
+  return record;
+}
+
+export async function listRecentAppointmentRecords(workspace?: WorkspaceContext) {
+  const localRecords = await listLocalAppointments();
+  const sortedLocalRecords = sortAppointmentsByLatestActivity(localRecords);
+
+  if (shouldUseLocalFallback || !supabase || !workspace) {
+    return sortedLocalRecords;
+  }
+
+  const { data, error } = await supabase
+    .from(APPOINTMENTS_TABLE)
+    .select(PRODUCTION_APPOINTMENT_SELECT)
+    .eq('organization_id', workspace.activeMembership.organization.id)
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (error) {
+    if (isDevelopment) {
+      return sortedLocalRecords;
+    }
+
+    throw new Error(error.message);
+  }
+
+  const remoteRecords = ((data ?? []) as AppointmentRow[]).map((row) =>
+    applyWorkspaceBranding(hydrateAppointmentRecord(row), workspace),
+  );
+  const sortedRemoteRecords = sortAppointmentsByLatestActivity(remoteRecords);
+
+  await Promise.all(sortedRemoteRecords.map((record) => saveLocalAppointment(record)));
+
+  return sortedRemoteRecords;
 }
