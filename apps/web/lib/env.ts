@@ -1,3 +1,5 @@
+import { normalizeHeygenSceneTemplateKey } from '../../../shared/heygen';
+
 function readEnv(name: string) {
   const value = process.env[name]?.trim();
 
@@ -51,5 +53,23 @@ export function getSupabasePublicEnv() {
       'NEXT_PUBLIC_SUPABASE_ANON_KEY',
       'WXT_SUPABASE_ANON_KEY',
     ]),
+  };
+}
+
+export function getHeygenEnv() {
+  const apiKey = readEnv('HEYGEN_API_KEY');
+  const webhookSecret = readEnv('HEYGEN_WEBHOOK_SECRET');
+  const defaultAvatarId = readEnv('HEYGEN_DEFAULT_AVATAR_ID');
+  const defaultVoiceId = readEnv('HEYGEN_DEFAULT_VOICE_ID');
+  const defaultSceneTemplateKey = normalizeHeygenSceneTemplateKey(
+    readEnv('HEYGEN_DEFAULT_SCENE_TEMPLATE_KEY'),
+  );
+
+  return {
+    apiKey,
+    webhookSecret,
+    defaultAvatarId,
+    defaultVoiceId,
+    defaultSceneTemplateKey,
   };
 }

@@ -9,6 +9,7 @@ import {
   type VehicleImageProvider,
   type VehicleImageSelection,
 } from './repple-contract';
+import { type AppointmentVideoStatus } from './heygen';
 import type { AppointmentRow, AppointmentStatus, PublicAppointmentRow } from './supabase-schema';
 
 type BaseAppointmentRecord = AppointmentRecord;
@@ -82,6 +83,19 @@ function normalizeVehicleImageProvider(
   }
 }
 
+function normalizeVideoStatus(value: string | null | undefined): AppointmentVideoStatus {
+  switch (value) {
+    case 'queued':
+    case 'processing':
+    case 'completed':
+    case 'failed':
+    case 'disabled':
+      return value;
+    default:
+      return 'not_requested';
+  }
+}
+
 export function createSharedAppointmentRecord(
   draft: AppointmentDraft,
   urls: AppointmentUrlBuilders,
@@ -115,6 +129,13 @@ export function createSharedAppointmentRecord(
     vehicleImageProvider: options.vehicleImage?.provider ?? null,
     vehicleImageSourcePageUrl: options.vehicleImage?.sourcePageUrl ?? null,
     vehicleImageConfidence: options.vehicleImage?.confidence ?? null,
+    videoStatus: 'not_requested',
+    videoUrl: null,
+    videoThumbnailUrl: null,
+    videoSharePageUrl: null,
+    videoRequestedAt: null,
+    videoCompletedAt: null,
+    videoError: null,
     smsText: '',
     viewedAt: null,
     confirmedAt: null,
@@ -150,6 +171,13 @@ export function hydrateSharedAppointmentRecord(
     vehicleImageProvider: row.vehicle_image_provider,
     vehicleImageSourcePageUrl: row.vehicle_image_source_page_url,
     vehicleImageConfidence: row.vehicle_image_confidence,
+    videoStatus: row.video_status,
+    videoUrl: row.video_url,
+    videoThumbnailUrl: row.video_thumbnail_url,
+    videoSharePageUrl: row.video_share_page_url,
+    videoRequestedAt: row.video_requested_at,
+    videoCompletedAt: row.video_completed_at,
+    videoError: row.video_error,
     smsText: '',
     viewedAt: row.viewed_at,
     confirmedAt: row.confirmed_at,
@@ -194,6 +222,13 @@ export function hydrateProductionAppointmentRecord(
     vehicleImageProvider: normalizeVehicleImageProvider(row.vehicle_image_provider),
     vehicleImageSourcePageUrl: null,
     vehicleImageConfidence: null,
+    videoStatus: normalizeVideoStatus(row.video_status),
+    videoUrl: row.video_url ?? null,
+    videoThumbnailUrl: row.video_thumbnail_url ?? null,
+    videoSharePageUrl: row.video_share_page_url ?? null,
+    videoRequestedAt: row.video_requested_at ?? null,
+    videoCompletedAt: row.video_completed_at ?? null,
+    videoError: row.video_error ?? null,
     smsText: '',
     viewedAt: row.opened_at,
     confirmedAt: row.confirmed_at,

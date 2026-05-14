@@ -45,6 +45,11 @@ export async function getExtensionSession() {
   return data.session;
 }
 
+export async function getExtensionAccessToken() {
+  const session = await getExtensionSession();
+  return session?.access_token ?? null;
+}
+
 export async function loadExtensionWorkspaceContext(): Promise<WorkspaceBootstrapContext | null> {
   if (!supabase) {
     return null;

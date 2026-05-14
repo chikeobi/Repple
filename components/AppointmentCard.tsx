@@ -299,6 +299,9 @@ export function AppointmentCard({
             accentColor={accentColor}
             appointmentTime={record.appointmentTime}
             thumbnailUrl={record.vehicleImageUrl}
+            videoStatus={record.videoStatus}
+            videoThumbnailUrl={record.videoThumbnailUrl}
+            videoUrl={record.videoUrl}
             vehicle={record.vehicle}
           />
 

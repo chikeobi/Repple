@@ -51,7 +51,7 @@ export async function getOrganizationSettings(
   const { data, error } = await client
     .from('organization_settings')
     .select(
-      'id, organization_id, default_sms_template, card_theme, compliance_footer, rep_join_code_hash, rep_join_code_updated_at',
+      'id, organization_id, default_sms_template, card_theme, compliance_footer, rep_join_code_hash, rep_join_code_updated_at, heygen_avatar_id, heygen_voice_id, heygen_scene_template_key',
     )
     .eq('organization_id', organizationId)
     .maybeSingle();

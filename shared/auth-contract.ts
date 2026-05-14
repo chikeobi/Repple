@@ -27,6 +27,9 @@ export type WorkspaceOrganizationSettings = Pick<
   | 'compliance_footer'
   | 'rep_join_code_hash'
   | 'rep_join_code_updated_at'
+  | 'heygen_avatar_id'
+  | 'heygen_voice_id'
+  | 'heygen_scene_template_key'
 >;
 
 export type WorkspaceSettingsInput = {
@@ -37,6 +40,9 @@ export type WorkspaceSettingsInput = {
   organizationLogoUrl: string;
   organizationBrandColor: string;
   defaultSmsTemplate: string;
+  heygenAvatarId: string;
+  heygenVoiceId: string;
+  heygenSceneTemplateKey: string;
   profileFullName: string;
   profileTitle: string;
   profileAvatarUrl: string;

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type FormEvent } from 'react';
 
 import type { WorkspaceBootstrapContext, WorkspaceContext, WorkspaceSettingsInput } from '../../../../../shared/auth-contract';
+import { HEYGEN_SCENE_TEMPLATE_KEYS } from '../../../../../shared/heygen';
 import {
   generateWebRepJoinCode,
   isSupabaseBrowserConfigured,
@@ -108,6 +109,9 @@ function createEmptySettings(): WorkspaceSettingsInput {
     organizationLogoUrl: '',
     organizationBrandColor: '',
     defaultSmsTemplate: '',
+    heygenAvatarId: '',
+    heygenVoiceId: '',
+    heygenSceneTemplateKey: HEYGEN_SCENE_TEMPLATE_KEYS[0],
     profileFullName: '',
     profileTitle: '',
     profileAvatarUrl: '',
@@ -472,6 +476,63 @@ export default function SettingsPage() {
                   <span style={codeStyle()}>{'{{dealershipName}}'}</span>{' '}
                   <span style={codeStyle()}>{'{{landingPageUrl}}'}</span>.
                 </p>
+              </div>
+
+              <div style={{ display: 'grid', gap: 12 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#172341' }}>
+                  Personalized Video
+                </p>
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: '#5d6c8b' }}>
+                  Optional HeyGen defaults for short personalized welcome videos. Leave these blank
+                  until your dealership is ready to enable real video generation.
+                </p>
+
+                <div>
+                  <label htmlFor="heygenAvatarId" style={labelStyle()}>
+                    HeyGen Avatar ID
+                  </label>
+                  <input
+                    disabled={!canManageOrganization}
+                    id="heygenAvatarId"
+                    onChange={(event) => updateField('heygenAvatarId', event.target.value)}
+                    placeholder="avatar_..."
+                    style={inputStyle(!canManageOrganization)}
+                    value={form.heygenAvatarId}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="heygenVoiceId" style={labelStyle()}>
+                    HeyGen Voice ID
+                  </label>
+                  <input
+                    disabled={!canManageOrganization}
+                    id="heygenVoiceId"
+                    onChange={(event) => updateField('heygenVoiceId', event.target.value)}
+                    placeholder="voice_..."
+                    style={inputStyle(!canManageOrganization)}
+                    value={form.heygenVoiceId}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="heygenSceneTemplateKey" style={labelStyle()}>
+                    Video Scene Template
+                  </label>
+                  <select
+                    disabled={!canManageOrganization}
+                    id="heygenSceneTemplateKey"
+                    onChange={(event) => updateField('heygenSceneTemplateKey', event.target.value)}
+                    style={inputStyle(!canManageOrganization)}
+                    value={form.heygenSceneTemplateKey}
+                  >
+                    {HEYGEN_SCENE_TEMPLATE_KEYS.map((key) => (
+                      <option key={key} value={key}>
+                        {key}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 

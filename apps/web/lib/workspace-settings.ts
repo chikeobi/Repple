@@ -1,6 +1,7 @@
 'use client';
 
 import type { WorkspaceContext, WorkspaceSettingsInput } from '../../../shared/auth-contract';
+import { normalizeHeygenSceneTemplateKey } from '../../../shared/heygen';
 import { supabaseBrowser } from './supabase-browser';
 
 function normalizeRequiredText(value: string, field: string) {
@@ -43,6 +44,11 @@ export function buildWorkspaceSettingsInput(
     organizationLogoUrl: workspace.activeMembership.organization.logo_url ?? '',
     organizationBrandColor: workspace.activeMembership.organization.brand_color ?? '',
     defaultSmsTemplate: workspace.organizationSettings?.default_sms_template ?? '',
+    heygenAvatarId: workspace.organizationSettings?.heygen_avatar_id ?? '',
+    heygenVoiceId: workspace.organizationSettings?.heygen_voice_id ?? '',
+    heygenSceneTemplateKey: normalizeHeygenSceneTemplateKey(
+      workspace.organizationSettings?.heygen_scene_template_key,
+    ),
     profileFullName: workspace.profile.full_name ?? '',
     profileTitle: workspace.profile.title ?? '',
     profileAvatarUrl: workspace.profile.avatar_url ?? '',
@@ -99,6 +105,11 @@ export async function updateWorkspaceSettings(
       {
         organization_id: organizationId,
         default_sms_template: normalizeOptionalText(input.defaultSmsTemplate),
+        heygen_avatar_id: normalizeOptionalText(input.heygenAvatarId),
+        heygen_voice_id: normalizeOptionalText(input.heygenVoiceId),
+        heygen_scene_template_key: normalizeHeygenSceneTemplateKey(
+          input.heygenSceneTemplateKey,
+        ),
       },
       { onConflict: 'organization_id' },
     );

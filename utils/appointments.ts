@@ -25,7 +25,7 @@ import type { VehicleImageSelection } from '../shared/repple-contract';
 const APPOINTMENTS_TABLE = 'appointments';
 const MAX_SHORT_ID_ATTEMPTS = 5;
 const PRODUCTION_APPOINTMENT_SELECT =
-  'id, organization_id, created_by_profile_id, short_id, customer_name, customer_phone_optional, vehicle, vin_optional, vehicle_image_url, vehicle_image_provider, appointment_time, salesperson_name, salesperson_title, salesperson_avatar_url, dealership_name, dealership_address, public_url, created_at, opened_at, confirmed_at, reschedule_requested_at, reschedule_note, status';
+  'id, organization_id, created_by_profile_id, short_id, customer_name, customer_phone_optional, vehicle, vin_optional, vehicle_image_url, vehicle_image_provider, video_status, video_url, video_thumbnail_url, video_share_page_url, video_requested_at, video_completed_at, video_error, appointment_time, salesperson_name, salesperson_title, salesperson_avatar_url, dealership_name, dealership_address, public_url, created_at, opened_at, confirmed_at, reschedule_requested_at, reschedule_note, status';
 
 function hydrateAppointmentRecord(row: AppointmentRow) {
   return hydrateProductionAppointmentRecord(row, {

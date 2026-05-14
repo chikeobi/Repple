@@ -2,7 +2,7 @@ export const DEFAULT_ORGANIZATION_USAGE_LIMITS = {
   generatedExperiences: 300,
   mediaUsage: 300,
   imageGenerationUsage: 120,
-  videoGenerationUsage: 0,
+  videoGenerationUsage: 20,
 } as const;
 
 export type OrganizationUsageSummary = {

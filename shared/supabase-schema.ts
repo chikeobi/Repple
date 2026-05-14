@@ -1,4 +1,5 @@
 import type { OrganizationSubscriptionStatus } from './billing';
+import type { AppointmentVideoStatus, HeygenSceneTemplateKey } from './heygen';
 
 export const MEMBERSHIP_ROLES = ['owner', 'admin', 'rep'] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
@@ -77,6 +78,9 @@ export type OrganizationSettingsRow = {
   compliance_footer: string | null;
   rep_join_code_hash: string | null;
   rep_join_code_updated_at: string | null;
+  heygen_avatar_id: string | null;
+  heygen_voice_id: string | null;
+  heygen_scene_template_key: HeygenSceneTemplateKey | null;
   created_at: string;
   updated_at: string;
 };
@@ -92,6 +96,14 @@ export type AppointmentRow = {
   vin_optional: string | null;
   vehicle_image_url: string | null;
   vehicle_image_provider: string | null;
+  video_status: AppointmentVideoStatus;
+  video_external_id: string | null;
+  video_url: string | null;
+  video_thumbnail_url: string | null;
+  video_share_page_url: string | null;
+  video_requested_at: string | null;
+  video_completed_at: string | null;
+  video_error: string | null;
   appointment_time: string;
   salesperson_name: string;
   salesperson_title: string | null;
@@ -123,6 +135,13 @@ export type PublicAppointmentRow = Pick<
   | 'vehicle'
   | 'vehicle_image_url'
   | 'vehicle_image_provider'
+  | 'video_status'
+  | 'video_url'
+  | 'video_thumbnail_url'
+  | 'video_share_page_url'
+  | 'video_requested_at'
+  | 'video_completed_at'
+  | 'video_error'
   | 'appointment_time'
   | 'salesperson_name'
   | 'salesperson_title'

@@ -1,3 +1,4 @@
+import type { AppointmentVideoStatus } from './heygen';
 import type { AppointmentStatus } from './supabase-schema';
 
 export const STANDARD_SHORT_ID_LENGTH = 6;
@@ -41,6 +42,13 @@ export type AppointmentRecord = {
   vehicleImageProvider: VehicleImageProvider | null;
   vehicleImageSourcePageUrl: string | null;
   vehicleImageConfidence: VehicleImageConfidence | null;
+  videoStatus: AppointmentVideoStatus;
+  videoUrl: string | null;
+  videoThumbnailUrl: string | null;
+  videoSharePageUrl: string | null;
+  videoRequestedAt: string | null;
+  videoCompletedAt: string | null;
+  videoError: string | null;
   smsText: string;
   viewedAt: string | null;
   confirmedAt: string | null;
@@ -104,6 +112,13 @@ export type SupabaseAppointmentRow = {
   vehicle_image_provider?: string | null;
   vehicle_image_source_page_url?: string | null;
   vehicle_image_confidence?: string | null;
+  video_status?: string | null;
+  video_url?: string | null;
+  video_thumbnail_url?: string | null;
+  video_share_page_url?: string | null;
+  video_requested_at?: string | null;
+  video_completed_at?: string | null;
+  video_error?: string | null;
   viewed_at?: string | null;
   confirmed_at?: string | null;
   reschedule_requested_at?: string | null;
@@ -123,6 +138,13 @@ export type NormalizedAppointmentRow = {
   vehicle_image_provider: VehicleImageProvider | null;
   vehicle_image_source_page_url: string | null;
   vehicle_image_confidence: VehicleImageConfidence | null;
+  video_status: AppointmentVideoStatus;
+  video_url: string | null;
+  video_thumbnail_url: string | null;
+  video_share_page_url: string | null;
+  video_requested_at: string | null;
+  video_completed_at: string | null;
+  video_error: string | null;
   viewed_at: string | null;
   confirmed_at: string | null;
   reschedule_requested_at: string | null;
@@ -336,6 +358,20 @@ export function normalizeSupabaseRow(row: SupabaseAppointmentRow | null | undefi
     vehicle_image_source_page_url: row.vehicle_image_source_page_url ?? null,
     vehicle_image_confidence:
       (normalizedVehicleImageConfidence as VehicleImageConfidence | null) ?? null,
+    video_status:
+      (row.video_status === 'queued' ||
+      row.video_status === 'processing' ||
+      row.video_status === 'completed' ||
+      row.video_status === 'failed' ||
+      row.video_status === 'disabled'
+        ? row.video_status
+        : 'not_requested') as AppointmentVideoStatus,
+    video_url: row.video_url ?? null,
+    video_thumbnail_url: row.video_thumbnail_url ?? null,
+    video_share_page_url: row.video_share_page_url ?? null,
+    video_requested_at: row.video_requested_at ?? null,
+    video_completed_at: row.video_completed_at ?? null,
+    video_error: row.video_error ?? null,
     viewed_at: row.viewed_at ?? null,
     confirmed_at: row.confirmed_at ?? null,
     reschedule_requested_at: row.reschedule_requested_at ?? null,

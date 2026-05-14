@@ -224,14 +224,39 @@ export function AdvisorAvatar({
 export function VehicleShowcase({
   accentColor,
   thumbnailUrl,
+  videoUrl,
+  videoThumbnailUrl,
+  videoStatus,
   vehicle,
   appointmentTime,
 }: {
   accentColor: string;
   thumbnailUrl: string | null;
+  videoUrl: string | null;
+  videoThumbnailUrl: string | null;
+  videoStatus:
+    | 'not_requested'
+    | 'queued'
+    | 'processing'
+    | 'completed'
+    | 'failed'
+    | 'disabled';
   vehicle: string;
   appointmentTime: string;
 }) {
+  const hasVideo = videoStatus === 'completed' && Boolean(videoUrl?.trim());
+  const posterUrl = videoThumbnailUrl || thumbnailUrl;
+  const badgeLabel = hasVideo
+    ? 'Personalized welcome video'
+    : videoStatus === 'queued' || videoStatus === 'processing'
+      ? 'Personalized welcome processing'
+      : 'Arrival preview';
+  const supportingCopy = hasVideo
+    ? `Play your personalized welcome before ${appointmentTime}.`
+    : videoStatus === 'queued' || videoStatus === 'processing'
+      ? `Your personalized welcome is processing now. Your arrival details are ready for ${appointmentTime}.`
+      : `Your arrival details are ready for ${appointmentTime}.`;
+
   return (
     <div
       style={{
@@ -244,7 +269,15 @@ export function VehicleShowcase({
         boxShadow: SOFT_CARD_SHADOW,
       }}
     >
-      {thumbnailUrl ? (
+      {hasVideo ? (
+        <video
+          controls
+          playsInline
+          poster={posterUrl ?? undefined}
+          src={videoUrl ?? undefined}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      ) : thumbnailUrl ? (
         <img
           alt={vehicle}
           src={thumbnailUrl}
@@ -294,7 +327,7 @@ export function VehicleShowcase({
           lineHeight: 1,
         }}
       >
-        Personalized experience
+        {badgeLabel}
       </div>
       <div
         style={{
@@ -331,7 +364,7 @@ export function VehicleShowcase({
             color: 'rgba(255,255,255,0.82)',
           }}
         >
-          Your arrival details are ready for {appointmentTime}.
+          {supportingCopy}
         </p>
       </div>
     </div>

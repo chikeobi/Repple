@@ -123,10 +123,36 @@ create table if not exists public.organization_settings (
   compliance_footer text,
   rep_join_code_hash text,
   rep_join_code_updated_at timestamptz,
+  heygen_avatar_id text,
+  heygen_voice_id text,
+  heygen_scene_template_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint organization_settings_org_unique unique (organization_id)
 );
+
+alter table public.organization_settings
+  add column if not exists heygen_avatar_id text;
+
+alter table public.organization_settings
+  add column if not exists heygen_voice_id text;
+
+alter table public.organization_settings
+  add column if not exists heygen_scene_template_key text;
+
+alter table public.organization_settings
+  drop constraint if exists organization_settings_heygen_scene_template_key_check;
+
+alter table public.organization_settings
+  add constraint organization_settings_heygen_scene_template_key_check
+  check (
+    heygen_scene_template_key is null
+    or heygen_scene_template_key in (
+      'showroom-welcome',
+      'arrival-concierge',
+      'premium-confirmation'
+    )
+  );
 
 drop trigger if exists set_organization_settings_updated_at on public.organization_settings;
 create trigger set_organization_settings_updated_at
@@ -206,7 +232,7 @@ create table if not exists public.organization_usage_monthly (
   soft_generated_experiences_limit integer not null default 300,
   soft_media_usage_limit integer not null default 300,
   soft_image_generation_usage_limit integer not null default 120,
-  soft_video_generation_usage_limit integer not null default 0,
+  soft_video_generation_usage_limit integer not null default 20,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (organization_id, usage_period_start),
@@ -263,6 +289,14 @@ create table if not exists public.appointments (
   vin_optional text,
   vehicle_image_url text,
   vehicle_image_provider text,
+  video_status text not null default 'not_requested',
+  video_external_id text,
+  video_url text,
+  video_thumbnail_url text,
+  video_share_page_url text,
+  video_requested_at timestamptz,
+  video_completed_at timestamptz,
+  video_error text,
   appointment_time text not null,
   salesperson_name text not null,
   salesperson_title text,
@@ -293,11 +327,46 @@ create table if not exists public.appointments (
         'external-api',
         'fallback'
       )
+    ),
+  constraint appointments_video_status_check
+    check (
+      video_status in (
+        'not_requested',
+        'queued',
+        'processing',
+        'completed',
+        'failed',
+        'disabled'
+      )
     )
 );
 
 alter table public.appointments
   add column if not exists vehicle_image_provider text;
+
+alter table public.appointments
+  add column if not exists video_status text not null default 'not_requested';
+
+alter table public.appointments
+  add column if not exists video_external_id text;
+
+alter table public.appointments
+  add column if not exists video_url text;
+
+alter table public.appointments
+  add column if not exists video_thumbnail_url text;
+
+alter table public.appointments
+  add column if not exists video_share_page_url text;
+
+alter table public.appointments
+  add column if not exists video_requested_at timestamptz;
+
+alter table public.appointments
+  add column if not exists video_completed_at timestamptz;
+
+alter table public.appointments
+  add column if not exists video_error text;
 
 alter table public.appointments
   drop constraint if exists appointments_vehicle_image_provider_check;
@@ -312,6 +381,22 @@ alter table public.appointments
       'vin-lookup',
       'external-api',
       'fallback'
+    )
+  );
+
+alter table public.appointments
+  drop constraint if exists appointments_video_status_check;
+
+alter table public.appointments
+  add constraint appointments_video_status_check
+  check (
+    video_status in (
+      'not_requested',
+      'queued',
+      'processing',
+      'completed',
+      'failed',
+      'disabled'
     )
   );
 
@@ -642,7 +727,7 @@ begin
     coalesce(usage_row.soft_generated_experiences_limit, 300),
     coalesce(usage_row.soft_media_usage_limit, 300),
     coalesce(usage_row.soft_image_generation_usage_limit, 120),
-    coalesce(usage_row.soft_video_generation_usage_limit, 0),
+    coalesce(usage_row.soft_video_generation_usage_limit, 20),
     coalesce(usage_row.generated_experiences_count, 0)
       >= coalesce(usage_row.soft_generated_experiences_limit, 300)
       and coalesce(usage_row.soft_generated_experiences_limit, 300) > 0,
@@ -653,8 +738,8 @@ begin
       >= coalesce(usage_row.soft_image_generation_usage_limit, 120)
       and coalesce(usage_row.soft_image_generation_usage_limit, 120) > 0,
     coalesce(usage_row.video_generation_usage_count, 0)
-      >= coalesce(usage_row.soft_video_generation_usage_limit, 0)
-      and coalesce(usage_row.soft_video_generation_usage_limit, 0) > 0
+      >= coalesce(usage_row.soft_video_generation_usage_limit, 20)
+      and coalesce(usage_row.soft_video_generation_usage_limit, 20) > 0
   from usage_row
   right join (select 1) as seed on true;
 end;
@@ -1081,6 +1166,13 @@ returns table (
   vehicle text,
   vehicle_image_url text,
   vehicle_image_provider text,
+  video_status text,
+  video_url text,
+  video_thumbnail_url text,
+  video_share_page_url text,
+  video_requested_at timestamptz,
+  video_completed_at timestamptz,
+  video_error text,
   appointment_time text,
   salesperson_name text,
   salesperson_title text,
@@ -1108,6 +1200,13 @@ as $$
     appointments.vehicle,
     appointments.vehicle_image_url,
     appointments.vehicle_image_provider,
+    appointments.video_status,
+    appointments.video_url,
+    appointments.video_thumbnail_url,
+    appointments.video_share_page_url,
+    appointments.video_requested_at,
+    appointments.video_completed_at,
+    appointments.video_error,
     appointments.appointment_time,
     appointments.salesperson_name,
     appointments.salesperson_title,
@@ -1144,6 +1243,13 @@ returns table (
   vehicle text,
   vehicle_image_url text,
   vehicle_image_provider text,
+  video_status text,
+  video_url text,
+  video_thumbnail_url text,
+  video_share_page_url text,
+  video_requested_at timestamptz,
+  video_completed_at timestamptz,
+  video_error text,
   appointment_time text,
   salesperson_name text,
   salesperson_title text,
@@ -1224,6 +1330,13 @@ begin
     updated_appointments.vehicle,
     updated_appointments.vehicle_image_url,
     updated_appointments.vehicle_image_provider,
+    updated_appointments.video_status,
+    updated_appointments.video_url,
+    updated_appointments.video_thumbnail_url,
+    updated_appointments.video_share_page_url,
+    updated_appointments.video_requested_at,
+    updated_appointments.video_completed_at,
+    updated_appointments.video_error,
     updated_appointments.appointment_time,
     updated_appointments.salesperson_name,
     updated_appointments.salesperson_title,

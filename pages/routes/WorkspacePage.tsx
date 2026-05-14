@@ -11,6 +11,7 @@ import type { WorkspaceContext } from '../../shared/auth-contract';
 import { extractAutofillHints } from '../../utils/autofill';
 import { recordWorkspaceAppointmentEvent } from '../../utils/analytics';
 import { debugLog } from '../../utils/debug';
+import { getExtensionAccessToken } from '../../utils/auth';
 import {
   createAndSaveAppointmentRecord,
   listRecentAppointmentRecords,
@@ -44,6 +45,16 @@ type WorkspaceTab = 'create' | 'activity';
 type DetectOptions = {
   force?: boolean;
 };
+type AppointmentVideoState = Pick<
+  AppointmentRecord,
+  | 'videoStatus'
+  | 'videoUrl'
+  | 'videoThumbnailUrl'
+  | 'videoSharePageUrl'
+  | 'videoRequestedAt'
+  | 'videoCompletedAt'
+  | 'videoError'
+>;
 const REQUIRED_GENERATION_FIELDS: DraftKey[] = [
   'firstName',
   'vehicle',
@@ -95,6 +106,22 @@ function mergeDraftFromHints(
   }
 
   return { nextDraft, nextAutofill, changed };
+}
+
+function mergeAppointmentVideoState(
+  record: AppointmentRecord,
+  video: AppointmentVideoState,
+): AppointmentRecord {
+  return {
+    ...record,
+    videoStatus: video.videoStatus,
+    videoUrl: video.videoUrl,
+    videoThumbnailUrl: video.videoThumbnailUrl,
+    videoSharePageUrl: video.videoSharePageUrl,
+    videoRequestedAt: video.videoRequestedAt,
+    videoCompletedAt: video.videoCompletedAt,
+    videoError: video.videoError,
+  };
 }
 
 export function WorkspacePage({
@@ -218,6 +245,57 @@ export function WorkspacePage({
 
     setSmsDraft(generated.smsText);
   }, [generated?.id]);
+
+  async function requestAppointmentVideo(record: AppointmentRecord) {
+    const accessToken = await getExtensionAccessToken();
+
+    if (!accessToken) {
+      return null;
+    }
+
+    const routeUrl = new URL(
+      `/api/appointments/${encodeURIComponent(record.id)}/video`,
+      record.landingPageUrl,
+    );
+    const response = await fetch(routeUrl.toString(), {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: string;
+          video?: {
+            status?: AppointmentRecord['videoStatus'];
+            url?: string | null;
+            thumbnailUrl?: string | null;
+            sharePageUrl?: string | null;
+            requestedAt?: string | null;
+            completedAt?: string | null;
+            error?: string | null;
+          } | null;
+        }
+      | null;
+
+    if (!response.ok) {
+      throw new Error(payload?.error ?? 'Unable to request personalized video right now.');
+    }
+
+    if (!payload?.video?.status) {
+      return null;
+    }
+
+    return {
+      videoStatus: payload.video.status,
+      videoUrl: payload.video.url ?? null,
+      videoThumbnailUrl: payload.video.thumbnailUrl ?? null,
+      videoSharePageUrl: payload.video.sharePageUrl ?? null,
+      videoRequestedAt: payload.video.requestedAt ?? null,
+      videoCompletedAt: payload.video.completedAt ?? null,
+      videoError: payload.video.error ?? null,
+    } satisfies AppointmentVideoState;
+  }
 
   function updateField(key: DraftKey, value: string) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -604,6 +682,25 @@ export function WorkspacePage({
       setSmsDraft(record.smsText);
       setCopyLabel('Copy Message');
       void loadActivityRecords();
+      void requestAppointmentVideo(record)
+        .then((videoState) => {
+          if (!videoState) {
+            return;
+          }
+
+          const nextRecord = mergeAppointmentVideoState(record, videoState);
+          setGenerated((current) =>
+            current?.id === nextRecord.id ? mergeAppointmentVideoState(current, videoState) : current,
+          );
+          setActivityRecords((current) =>
+            current.map((item) =>
+              item.id === nextRecord.id ? mergeAppointmentVideoState(item, videoState) : item,
+            ),
+          );
+        })
+        .catch((videoError) => {
+          debugLog('Personalized video request did not complete.', videoError);
+        });
     } catch (generationError) {
       setError(
         generationError instanceof Error
