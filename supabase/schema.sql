@@ -134,6 +134,14 @@ before update on public.organization_settings
 for each row
 execute function public.set_updated_at();
 
+create or replace function public.current_organization_usage_period_start()
+returns date
+language sql
+stable
+as $$
+  select date_trunc('month', timezone('utc', now()))::date
+$$;
+
 create or replace function public.is_organization_member(target_organization_id uuid)
 returns boolean
 language sql
@@ -188,6 +196,42 @@ as $$
   )
 $$;
 
+create table if not exists public.organization_usage_monthly (
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  usage_period_start date not null,
+  generated_experiences_count integer not null default 0,
+  media_usage_count integer not null default 0,
+  image_generation_usage_count integer not null default 0,
+  video_generation_usage_count integer not null default 0,
+  soft_generated_experiences_limit integer not null default 300,
+  soft_media_usage_limit integer not null default 300,
+  soft_image_generation_usage_limit integer not null default 120,
+  soft_video_generation_usage_limit integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (organization_id, usage_period_start),
+  constraint organization_usage_monthly_non_negative_counts
+    check (
+      generated_experiences_count >= 0
+      and media_usage_count >= 0
+      and image_generation_usage_count >= 0
+      and video_generation_usage_count >= 0
+    ),
+  constraint organization_usage_monthly_non_negative_limits
+    check (
+      soft_generated_experiences_limit >= 0
+      and soft_media_usage_limit >= 0
+      and soft_image_generation_usage_limit >= 0
+      and soft_video_generation_usage_limit >= 0
+    )
+);
+
+drop trigger if exists set_organization_usage_monthly_updated_at on public.organization_usage_monthly;
+create trigger set_organization_usage_monthly_updated_at
+before update on public.organization_usage_monthly
+for each row
+execute function public.set_updated_at();
+
 create or replace function public.prevent_client_billing_field_updates()
 returns trigger
 language plpgsql
@@ -218,6 +262,7 @@ create table if not exists public.appointments (
   vehicle text not null,
   vin_optional text,
   vehicle_image_url text,
+  vehicle_image_provider text,
   appointment_time text not null,
   salesperson_name text not null,
   salesperson_title text,
@@ -237,8 +282,38 @@ create table if not exists public.appointments (
     check (
       vin_optional is null
       or upper(vin_optional) ~ '^[A-HJ-NPR-Z0-9]{17}$'
+    ),
+  constraint appointments_vehicle_image_provider_check
+    check (
+      vehicle_image_provider is null
+      or vehicle_image_provider in (
+        'crm-page',
+        'inventory-page',
+        'vin-lookup',
+        'external-api',
+        'fallback'
+      )
     )
 );
+
+alter table public.appointments
+  add column if not exists vehicle_image_provider text;
+
+alter table public.appointments
+  drop constraint if exists appointments_vehicle_image_provider_check;
+
+alter table public.appointments
+  add constraint appointments_vehicle_image_provider_check
+  check (
+    vehicle_image_provider is null
+    or vehicle_image_provider in (
+      'crm-page',
+      'inventory-page',
+      'vin-lookup',
+      'external-api',
+      'fallback'
+    )
+  );
 
 drop trigger if exists protect_organization_billing_fields on public.organizations;
 create trigger protect_organization_billing_fields
@@ -301,6 +376,7 @@ alter table public.organizations enable row level security;
 alter table public.profiles enable row level security;
 alter table public.memberships enable row level security;
 alter table public.organization_settings enable row level security;
+alter table public.organization_usage_monthly enable row level security;
 alter table public.appointments enable row level security;
 alter table public.appointment_events enable row level security;
 alter table public.appointment_public_action_attempts enable row level security;
@@ -429,6 +505,162 @@ on public.appointments
 for update
 using (public.can_update_appointment(organization_id, created_by_profile_id))
 with check (public.can_update_appointment(organization_id, created_by_profile_id));
+
+create or replace function public.record_organization_usage(
+  input_organization_id uuid,
+  input_generated_experiences_delta integer default 0,
+  input_media_usage_delta integer default 0,
+  input_image_generation_usage_delta integer default 0,
+  input_video_generation_usage_delta integer default 0
+)
+returns public.organization_usage_monthly
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  usage_period_start_value date := public.current_organization_usage_period_start();
+  usage_row public.organization_usage_monthly%rowtype;
+begin
+  if input_organization_id is null then
+    raise exception 'Organization is required.';
+  end if;
+
+  if auth.role() <> 'service_role'
+    and auth.uid() is not null
+    and not public.is_organization_member(input_organization_id) then
+    raise exception 'You do not have access to this dealership account.';
+  end if;
+
+  insert into public.organization_usage_monthly (
+    organization_id,
+    usage_period_start
+  )
+  values (
+    input_organization_id,
+    usage_period_start_value
+  )
+  on conflict (organization_id, usage_period_start) do nothing;
+
+  update public.organization_usage_monthly
+  set
+    generated_experiences_count =
+      generated_experiences_count + greatest(coalesce(input_generated_experiences_delta, 0), 0),
+    media_usage_count =
+      media_usage_count + greatest(coalesce(input_media_usage_delta, 0), 0),
+    image_generation_usage_count =
+      image_generation_usage_count + greatest(coalesce(input_image_generation_usage_delta, 0), 0),
+    video_generation_usage_count =
+      video_generation_usage_count + greatest(coalesce(input_video_generation_usage_delta, 0), 0)
+  where organization_id = input_organization_id
+    and usage_period_start = usage_period_start_value
+  returning *
+  into usage_row;
+
+  return usage_row;
+end;
+$$;
+
+grant execute on function public.record_organization_usage(uuid, integer, integer, integer, integer) to authenticated;
+
+create or replace function public.track_appointment_usage()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.record_organization_usage(
+    new.organization_id,
+    1,
+    case when nullif(trim(coalesce(new.vehicle_image_url, '')), '') is null then 0 else 1 end,
+    case
+      when coalesce(new.vehicle_image_provider, '') in ('vin-lookup', 'external-api') then 1
+      else 0
+    end,
+    0
+  );
+
+  return new;
+end;
+$$;
+
+drop trigger if exists track_appointment_usage on public.appointments;
+create trigger track_appointment_usage
+after insert on public.appointments
+for each row
+execute function public.track_appointment_usage();
+
+drop function if exists public.get_organization_usage_summary(uuid);
+create function public.get_organization_usage_summary(input_organization_id uuid)
+returns table (
+  organization_id uuid,
+  usage_period_start date,
+  generated_experiences_count integer,
+  media_usage_count integer,
+  image_generation_usage_count integer,
+  video_generation_usage_count integer,
+  soft_generated_experiences_limit integer,
+  soft_media_usage_limit integer,
+  soft_image_generation_usage_limit integer,
+  soft_video_generation_usage_limit integer,
+  generated_experiences_over_soft_limit boolean,
+  media_usage_over_soft_limit boolean,
+  image_generation_usage_over_soft_limit boolean,
+  video_generation_usage_over_soft_limit boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  usage_period_start_value date := public.current_organization_usage_period_start();
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  if input_organization_id is null or not public.is_organization_member(input_organization_id) then
+    raise exception 'You do not have access to this dealership account.';
+  end if;
+
+  return query
+  with usage_row as (
+    select *
+    from public.organization_usage_monthly
+    where organization_id = input_organization_id
+      and usage_period_start = usage_period_start_value
+    limit 1
+  )
+  select
+    input_organization_id,
+    usage_period_start_value,
+    coalesce(usage_row.generated_experiences_count, 0),
+    coalesce(usage_row.media_usage_count, 0),
+    coalesce(usage_row.image_generation_usage_count, 0),
+    coalesce(usage_row.video_generation_usage_count, 0),
+    coalesce(usage_row.soft_generated_experiences_limit, 300),
+    coalesce(usage_row.soft_media_usage_limit, 300),
+    coalesce(usage_row.soft_image_generation_usage_limit, 120),
+    coalesce(usage_row.soft_video_generation_usage_limit, 0),
+    coalesce(usage_row.generated_experiences_count, 0)
+      >= coalesce(usage_row.soft_generated_experiences_limit, 300)
+      and coalesce(usage_row.soft_generated_experiences_limit, 300) > 0,
+    coalesce(usage_row.media_usage_count, 0)
+      >= coalesce(usage_row.soft_media_usage_limit, 300)
+      and coalesce(usage_row.soft_media_usage_limit, 300) > 0,
+    coalesce(usage_row.image_generation_usage_count, 0)
+      >= coalesce(usage_row.soft_image_generation_usage_limit, 120)
+      and coalesce(usage_row.soft_image_generation_usage_limit, 120) > 0,
+    coalesce(usage_row.video_generation_usage_count, 0)
+      >= coalesce(usage_row.soft_video_generation_usage_limit, 0)
+      and coalesce(usage_row.soft_video_generation_usage_limit, 0) > 0
+  from usage_row
+  right join (select 1) as seed on true;
+end;
+$$;
+
+grant execute on function public.get_organization_usage_summary(uuid) to authenticated;
 
 drop function if exists public.record_appointment_event(text, public.appointment_event_type, jsonb);
 create function public.record_appointment_event(
@@ -848,6 +1080,7 @@ returns table (
   customer_name text,
   vehicle text,
   vehicle_image_url text,
+  vehicle_image_provider text,
   appointment_time text,
   salesperson_name text,
   salesperson_title text,
@@ -874,6 +1107,7 @@ as $$
     appointments.customer_name,
     appointments.vehicle,
     appointments.vehicle_image_url,
+    appointments.vehicle_image_provider,
     appointments.appointment_time,
     appointments.salesperson_name,
     appointments.salesperson_title,
@@ -909,6 +1143,7 @@ returns table (
   customer_name text,
   vehicle text,
   vehicle_image_url text,
+  vehicle_image_provider text,
   appointment_time text,
   salesperson_name text,
   salesperson_title text,
@@ -988,6 +1223,7 @@ begin
     updated_appointments.customer_name,
     updated_appointments.vehicle,
     updated_appointments.vehicle_image_url,
+    updated_appointments.vehicle_image_provider,
     updated_appointments.appointment_time,
     updated_appointments.salesperson_name,
     updated_appointments.salesperson_title,

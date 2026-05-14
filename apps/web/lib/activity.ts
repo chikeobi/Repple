@@ -8,7 +8,7 @@ import { buildPreviewImageUrl, buildPublicLandingPageUrl, type AppointmentRecord
 import { supabaseBrowser } from './supabase-browser';
 
 const APPOINTMENT_ACTIVITY_SELECT =
-  'id, organization_id, created_by_profile_id, short_id, customer_name, customer_phone_optional, vehicle, vin_optional, vehicle_image_url, appointment_time, salesperson_name, salesperson_title, salesperson_avatar_url, dealership_name, dealership_address, public_url, created_at, opened_at, confirmed_at, reschedule_requested_at, reschedule_note, status';
+  'id, organization_id, created_by_profile_id, short_id, customer_name, customer_phone_optional, vehicle, vin_optional, vehicle_image_url, vehicle_image_provider, appointment_time, salesperson_name, salesperson_title, salesperson_avatar_url, dealership_name, dealership_address, public_url, created_at, opened_at, confirmed_at, reschedule_requested_at, reschedule_note, status';
 
 function hydrateAppointment(row: AppointmentRow, membership: OrganizationMembership) {
   return {

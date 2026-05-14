@@ -8,6 +8,12 @@ import {
   formatOrganizationSubscriptionStatus,
   isOrganizationSubscriptionActive,
 } from '../../../../shared/billing';
+import type { OrganizationUsageSummary } from '../../../../shared/usage';
+import {
+  formatUsageLimit,
+  getUsageRatio,
+  hasOrganizationUsagePressure,
+} from '../../../../shared/usage';
 import type { WorkspaceBootstrapContext } from '../../../../shared/auth-contract';
 import type { WorkspaceContext } from '../../../../shared/auth-contract';
 import {
@@ -30,6 +36,7 @@ import {
   startStripeCheckout,
   syncStripeBillingStatus,
 } from '../../lib/billing';
+import { getOrganizationUsageSummary } from '../../lib/usage';
 
 type AuthMode = 'sign-in' | 'sign-up';
 type OrganizationOnboardingMode = 'create' | 'join';
@@ -129,8 +136,10 @@ export function AppDashboard() {
   const [analyticsCounts, setAnalyticsCounts] = useState<AppointmentEventCounts>(
     createEmptyAppointmentEventCounts,
   );
+  const [usageSummary, setUsageSummary] = useState<OrganizationUsageSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+  const [isUsageLoading, setIsUsageLoading] = useState(false);
   const [isBillingLoading, setIsBillingLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -209,6 +218,37 @@ export function AppDashboard() {
       .finally(() => {
         if (!cancelled) {
           setIsAnalyticsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [context]);
+
+  useEffect(() => {
+    if (!isReadyContext(context)) {
+      setUsageSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsUsageLoading(true);
+
+    void getOrganizationUsageSummary(context.activeMembership.organization.id)
+      .then((summary) => {
+        if (!cancelled) {
+          setUsageSummary(summary);
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : 'Unable to load usage.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsUsageLoading(false);
         }
       });
 
@@ -578,7 +618,141 @@ export function AppDashboard() {
                 padding: 18,
               }}
             >
-              <p style={{ margin: 0, fontSize: 13, color: '#6b7891' }}>Usage summary</p>
+              <p style={{ margin: 0, fontSize: 13, color: '#6b7891' }}>Usage limits</p>
+              <p
+                style={{
+                  margin: '6px 0 0',
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  color: '#5d6c8b',
+                }}
+              >
+                {isUsageLoading
+                  ? 'Refreshing this month’s dealership usage...'
+                  : usageSummary
+                    ? `Pilot economics snapshot for ${new Intl.DateTimeFormat('en-US', {
+                        month: 'long',
+                        year: 'numeric',
+                      }).format(new Date(`${usageSummary.usagePeriodStart}T00:00:00.000Z`))}.`
+                    : 'Monthly usage counters will appear here once tracked usage is available.'}
+              </p>
+              {usageSummary && hasOrganizationUsagePressure(usageSummary) ? (
+                <p
+                  style={{
+                    margin: '10px 0 0',
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    color: '#8c4b1d',
+                  }}
+                >
+                  One or more soft usage thresholds have been reached. Repple stays active, but
+                  this dealership should review rollout volume and media costs.
+                </p>
+              ) : null}
+              <div
+                style={{
+                  marginTop: 14,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 10,
+                }}
+              >
+                {[
+                  {
+                    label: 'Generated Experiences',
+                    used: usageSummary?.generatedExperiencesCount ?? 0,
+                    limit: usageSummary?.softGeneratedExperiencesLimit ?? 0,
+                    over: usageSummary?.generatedExperiencesOverSoftLimit ?? false,
+                  },
+                  {
+                    label: 'Media Usage',
+                    used: usageSummary?.mediaUsageCount ?? 0,
+                    limit: usageSummary?.softMediaUsageLimit ?? 0,
+                    over: usageSummary?.mediaUsageOverSoftLimit ?? false,
+                  },
+                  {
+                    label: 'Image Provider Usage',
+                    used: usageSummary?.imageGenerationUsageCount ?? 0,
+                    limit: usageSummary?.softImageGenerationUsageLimit ?? 0,
+                    over: usageSummary?.imageGenerationUsageOverSoftLimit ?? false,
+                  },
+                  {
+                    label: 'Video Placeholder',
+                    used: usageSummary?.videoGenerationUsageCount ?? 0,
+                    limit: usageSummary?.softVideoGenerationUsageLimit ?? 0,
+                    over: usageSummary?.videoGenerationUsageOverSoftLimit ?? false,
+                  },
+                ].map((item) => {
+                  const ratio = getUsageRatio(item.used, item.limit);
+
+                  return (
+                    <div key={item.label} style={statCardStyle()}>
+                      <p style={{ margin: 0, fontSize: 12, color: '#6b7891' }}>{item.label}</p>
+                      <p
+                        style={{
+                          margin: '8px 0 0',
+                          fontSize: 24,
+                          fontWeight: 800,
+                          color: item.over ? '#8c4b1d' : '#172341',
+                        }}
+                      >
+                        {item.used}
+                      </p>
+                      <p
+                        style={{
+                          margin: '6px 0 0',
+                          fontSize: 12,
+                          color: item.over ? '#8c4b1d' : '#6b7891',
+                        }}
+                      >
+                        Soft limit: {formatUsageLimit(item.limit)}
+                      </p>
+                      {ratio !== null ? (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            height: 8,
+                            borderRadius: 999,
+                            background: 'rgba(15, 23, 42, 0.08)',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${Math.max(8, Math.round(ratio * 100))}%`,
+                              height: '100%',
+                              borderRadius: 999,
+                              background: item.over ? '#c76d2a' : '#1473ff',
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <p
+                          style={{
+                            margin: '10px 0 0',
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            color: '#6b7891',
+                          }}
+                        >
+                          Not enabled until future rollout.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: 18,
+                background: '#f8fbff',
+                border: '1px solid rgba(15, 23, 42, 0.06)',
+                padding: 18,
+              }}
+            >
+              <p style={{ margin: 0, fontSize: 13, color: '#6b7891' }}>Activity summary</p>
               <p
                 style={{
                   margin: '6px 0 0',

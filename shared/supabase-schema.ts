@@ -37,6 +37,21 @@ export type OrganizationRow = {
   created_at: string;
 };
 
+export type OrganizationUsageMonthlyRow = {
+  organization_id: string;
+  usage_period_start: string;
+  generated_experiences_count: number;
+  media_usage_count: number;
+  image_generation_usage_count: number;
+  video_generation_usage_count: number;
+  soft_generated_experiences_limit: number;
+  soft_media_usage_limit: number;
+  soft_image_generation_usage_limit: number;
+  soft_video_generation_usage_limit: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProfileRow = {
   id: string;
   email: string;
@@ -76,6 +91,7 @@ export type AppointmentRow = {
   vehicle: string;
   vin_optional: string | null;
   vehicle_image_url: string | null;
+  vehicle_image_provider: string | null;
   appointment_time: string;
   salesperson_name: string;
   salesperson_title: string | null;
@@ -106,6 +122,7 @@ export type PublicAppointmentRow = Pick<
   | 'customer_name'
   | 'vehicle'
   | 'vehicle_image_url'
+  | 'vehicle_image_provider'
   | 'appointment_time'
   | 'salesperson_name'
   | 'salesperson_title'

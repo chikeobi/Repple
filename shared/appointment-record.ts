@@ -6,6 +6,7 @@ import {
   type AppointmentDraft,
   type AppointmentRecord,
   type NormalizedAppointmentRow,
+  type VehicleImageProvider,
   type VehicleImageSelection,
 } from './repple-contract';
 import type { AppointmentRow, AppointmentStatus, PublicAppointmentRow } from './supabase-schema';
@@ -64,6 +65,21 @@ function deriveLegacyStatus(input: {
   }
 
   return 'generated';
+}
+
+function normalizeVehicleImageProvider(
+  value: string | null | undefined,
+): VehicleImageProvider | null {
+  switch (value) {
+    case 'crm-page':
+    case 'inventory-page':
+    case 'vin-lookup':
+    case 'external-api':
+    case 'fallback':
+      return value;
+    default:
+      return null;
+  }
 }
 
 export function createSharedAppointmentRecord(
@@ -175,7 +191,7 @@ export function hydrateProductionAppointmentRecord(
     landingPageUrl: row.public_url || urls.buildPublicLandingPageUrl(row.short_id),
     previewImageUrl: urls.buildPreviewImageUrl(row.short_id),
     vehicleImageUrl: row.vehicle_image_url,
-    vehicleImageProvider: null,
+    vehicleImageProvider: normalizeVehicleImageProvider(row.vehicle_image_provider),
     vehicleImageSourcePageUrl: null,
     vehicleImageConfidence: null,
     smsText: '',
