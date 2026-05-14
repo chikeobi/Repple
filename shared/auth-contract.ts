@@ -1,11 +1,20 @@
-import type { Session } from '@supabase/supabase-js';
-
 import type {
   MembershipRole,
   OrganizationRow,
   OrganizationSettingsRow,
   ProfileRow,
 } from './supabase-schema';
+
+export type AuthSessionUser = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+};
+
+export type AuthSession = {
+  access_token: string;
+  user: AuthSessionUser;
+};
 
 export type WorkspaceProfile = Pick<
   ProfileRow,
@@ -49,7 +58,7 @@ export type WorkspaceSettingsInput = {
 };
 
 export type WorkspaceContext = {
-  session: Session;
+  session: AuthSession;
   profile: WorkspaceProfile;
   memberships: OrganizationMembership[];
   activeMembership: OrganizationMembership;
@@ -57,7 +66,7 @@ export type WorkspaceContext = {
 };
 
 export type WorkspaceBootstrapContext = {
-  session: Session;
+  session: AuthSession;
   profile: WorkspaceProfile;
   memberships: OrganizationMembership[];
   activeMembership: OrganizationMembership | null;

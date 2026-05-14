@@ -1,6 +1,5 @@
-import type { SupabaseClient, User } from '@supabase/supabase-js';
-
 import type {
+  AuthSessionUser,
   BootstrapOrganizationInput,
   JoinOrganizationInput,
   OrganizationMembership,
@@ -9,7 +8,7 @@ import type {
 } from './auth-contract';
 import type { OrganizationRow } from './supabase-schema';
 
-type BrowserSupabaseClient = SupabaseClient;
+type BrowserSupabaseClient = any;
 
 type MembershipQueryRow = {
   id: string;
@@ -17,7 +16,7 @@ type MembershipQueryRow = {
   organization: OrganizationRow | OrganizationRow[] | null;
 };
 
-function getUserFullName(user: User) {
+function getUserFullName(user: AuthSessionUser) {
   const metadata = user.user_metadata ?? {};
   const fullName =
     typeof metadata.full_name === 'string'
@@ -29,7 +28,7 @@ function getUserFullName(user: User) {
   return fullName.trim() || null;
 }
 
-function getUserAvatarUrl(user: User) {
+function getUserAvatarUrl(user: AuthSessionUser) {
   const metadata = user.user_metadata ?? {};
   const avatarUrl = typeof metadata.avatar_url === 'string' ? metadata.avatar_url : '';
 
@@ -74,7 +73,7 @@ export function slugifyOrganizationName(name: string) {
 
 export async function upsertProfileFromUser(
   client: BrowserSupabaseClient,
-  user: User,
+  user: AuthSessionUser,
 ): Promise<WorkspaceProfile> {
   const payload = {
     id: user.id,
