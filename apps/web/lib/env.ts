@@ -1,5 +1,7 @@
 import { normalizeHeygenSceneTemplateKey } from '../../../shared/heygen';
 
+const DEFAULT_SITE_URL = 'https://repple.ai';
+
 function readEnv(name: string) {
   const value = process.env[name]?.trim();
 
@@ -38,12 +40,28 @@ function requireEnv(name: string, fallbackNames: string[] = []) {
   return null;
 }
 
-export function getSiteUrl() {
-  const siteUrl =
-    requireEnv('NEXT_PUBLIC_SITE_URL', ['WXT_PUBLIC_APP_URL', 'WXT_SITE_URL']) ||
-    'https://repple.ai';
+function normalizeSiteUrl(value: string) {
+  const normalized = value.trim();
 
-  return siteUrl.replace(/\/+$/, '');
+  try {
+    return new URL(normalized).origin;
+  } catch {
+    throw new Error(`Invalid site URL: ${value}`);
+  }
+}
+
+export function getSiteUrl() {
+  const siteUrl = requireEnv('NEXT_PUBLIC_SITE_URL', ['WXT_PUBLIC_APP_URL', 'WXT_SITE_URL']);
+
+  if (!siteUrl) {
+    return DEFAULT_SITE_URL;
+  }
+
+  return normalizeSiteUrl(siteUrl);
+}
+
+export function getSiteOrigin() {
+  return getSiteUrl();
 }
 
 export function getSupabasePublicEnv() {

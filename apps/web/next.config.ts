@@ -52,6 +52,8 @@ function applyEnvFallback(name: string, fallbackNames: string[]) {
 
 loadRootEnvFile();
 applyEnvFallback('NEXT_PUBLIC_SITE_URL', ['WXT_PUBLIC_APP_URL', 'WXT_SITE_URL']);
+applyEnvFallback('WXT_PUBLIC_APP_URL', ['NEXT_PUBLIC_SITE_URL', 'WXT_SITE_URL']);
+applyEnvFallback('WXT_SITE_URL', ['NEXT_PUBLIC_SITE_URL', 'WXT_PUBLIC_APP_URL']);
 applyEnvFallback('NEXT_PUBLIC_SUPABASE_URL', ['SUPABASE_URL', 'WXT_SUPABASE_URL']);
 applyEnvFallback('NEXT_PUBLIC_SUPABASE_ANON_KEY', [
   'SUPABASE_ANON_KEY',

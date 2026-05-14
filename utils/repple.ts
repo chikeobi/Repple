@@ -1,6 +1,4 @@
 import {
-  DEALERSHIP_ADDRESS,
-  DEALERSHIP_NAME,
   buildMetaDescription,
   buildPreviewImageUrl as buildSharedPreviewImageUrl,
   buildPublicLandingPageUrl as buildSharedPublicLandingPageUrl,
@@ -14,12 +12,12 @@ import {
   type AppointmentDraft,
   type AppointmentRecord,
 } from '../shared/repple-contract';
+import { createSharedAppointmentRecord } from '../shared/appointment-record';
 import {
   appendVinToVehicleImageUrl as appendSharedVinToVehicleImageUrl,
   buildVehicleImageRenderUrl as buildSharedVehicleImageRenderUrl,
   buildVehicleImageResolveUrl as buildSharedVehicleImageResolveUrl,
 } from '../shared/vehicle-images';
-import { startMockVideoGeneration } from './video-generation';
 import type { VehicleImageSelection } from '../shared/repple-contract';
 
 const PUBLIC_APP_FALLBACK_ORIGIN = 'https://repple.ai';
@@ -29,13 +27,20 @@ function trimTrailingSlash(value: string) {
 }
 
 function getConfiguredPublicAppOrigin() {
-  const configuredOrigin = import.meta.env.WXT_PUBLIC_APP_URL?.trim();
+  const configuredOrigin =
+    import.meta.env.WXT_PUBLIC_APP_URL?.trim() ||
+    import.meta.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    import.meta.env.WXT_SITE_URL?.trim();
 
   if (!configuredOrigin) {
     return PUBLIC_APP_FALLBACK_ORIGIN;
   }
 
-  return trimTrailingSlash(configuredOrigin);
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return PUBLIC_APP_FALLBACK_ORIGIN;
+  }
 }
 
 export function buildPublicLandingPageUrl(id: string, origin = getConfiguredPublicAppOrigin()) {
@@ -70,40 +75,30 @@ export function buildLandingPageUrl(id: string) {
 
 export function createAppointmentRecord(
   draft: AppointmentDraft,
-  options?: { id?: string; vehicleImage?: VehicleImageSelection | null },
+  options?: {
+    id?: string;
+    vehicleImage?: VehicleImageSelection | null;
+    smsTemplate?: string | null;
+    dealershipLogoUrl?: string | null;
+    dealershipBrandColor?: string | null;
+  },
 ): AppointmentRecord {
-  const id = normalizeAppointmentId(options?.id ?? generateAppointmentId());
-
-  if (!isStandardAppointmentId(id)) {
-    throw new Error('Unable to generate a valid public appointment ID.');
-  }
-
-  const landingPageUrl = buildPublicLandingPageUrl(id);
-
-  const baseRecord = {
-    id,
-    firstName: draft.firstName.trim(),
-    vehicle: draft.vehicle.trim(),
-    appointmentTime: draft.appointmentTime.trim(),
-    salespersonName: draft.salespersonName.trim(),
-    dealershipName: draft.dealershipName.trim() || DEALERSHIP_NAME,
-    dealershipAddress: draft.dealershipAddress.trim() || DEALERSHIP_ADDRESS,
-    landingPageUrl,
-    previewImageUrl: buildPreviewImageUrl(id),
-    vehicleImageUrl: options?.vehicleImage?.url ?? null,
-    vehicleImageProvider: options?.vehicleImage?.provider ?? null,
-    vehicleImageSourcePageUrl: options?.vehicleImage?.sourcePageUrl ?? null,
-    vehicleImageConfidence: options?.vehicleImage?.confidence ?? null,
-    smsText: '',
-    createdAt: new Date().toISOString(),
-  };
-
-  const record = startMockVideoGeneration(baseRecord);
-
-  return {
-    ...record,
-    smsText: buildSmsText(record),
-  };
+  return createSharedAppointmentRecord(
+    draft,
+    {
+      buildPublicLandingPageUrl,
+      buildPreviewImageUrl,
+    },
+    {
+      id: options?.id,
+      vehicleImage: options?.vehicleImage ?? null,
+      defaults: {
+        smsTemplate: options?.smsTemplate ?? null,
+        dealershipLogoUrl: options?.dealershipLogoUrl ?? null,
+        dealershipBrandColor: options?.dealershipBrandColor ?? null,
+      },
+    },
+  );
 }
 
 export function getAppointmentIdFromSearch(search: string) {

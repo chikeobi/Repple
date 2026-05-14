@@ -7,7 +7,9 @@ function getHostPermissions() {
 
 function getSiteUrl() {
   const rawSiteUrl =
-    import.meta.env.NEXT_PUBLIC_SITE_URL?.trim() || import.meta.env.WXT_SITE_URL?.trim();
+    import.meta.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    import.meta.env.WXT_PUBLIC_APP_URL?.trim() ||
+    import.meta.env.WXT_SITE_URL?.trim();
 
   if (!rawSiteUrl) {
     return 'https://repple.ai';
@@ -20,6 +22,11 @@ function getSiteUrl() {
   }
 }
 
+function getExternallyConnectableMatches() {
+  const siteOrigin = getSiteUrl();
+  return [`${siteOrigin}/*`];
+}
+
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: () => ({
@@ -30,6 +37,9 @@ export default defineConfig({
     permissions: ['scripting', 'storage', 'sidePanel', 'tabs'],
     host_permissions: getHostPermissions(),
     homepage_url: getSiteUrl(),
+    externally_connectable: {
+      matches: getExternallyConnectableMatches(),
+    },
     icons: {
       16: 'icons/repple-16.png',
       32: 'icons/repple-32.png',
